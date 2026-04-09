@@ -1,0 +1,56 @@
+services:
+
+  # ── Backend API Node.js + SQLite ──────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: agromanager-backend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DB_PATH=/data/agromanager.db
+    volumes:
+      - agromanager-data:/data        # Base SQLite persistante
+    networks:
+      - agromanager-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    # Pas exposé à l'extérieur — accessible uniquement via le frontend Nginx
+
+  # ── Frontend Nginx ────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: agromanager-frontend
+    restart: unless-stopped
+    ports:
+      - "8081:80"                     # Accessible sur http://VOTRE_IP:8081
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - agromanager-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+# ── Volumes ────────────────────────────────────────────────────
+volumes:
+  agromanager-data:
+    driver: local
+    # Les données SQLite sont stockées dans ce volume Docker
+    # Pour sauvegarder : docker run --rm -v agromanager-data:/data -v $(pwd):/backup alpine tar czf /backup/backup.tar.gz /data
+
+# ── Réseau interne ─────────────────────────────────────────────
+networks:
+  agromanager-net:
+    driver: bridge
