@@ -40,8 +40,15 @@ def plan_partitions(runner, disk, table_text):
 # --------------------------------------------------------------------- capture
 
 
+MODE_LABELS = {"partclone": "blocs utilisés", "dd": "copie intégrale"}
+
+
+def _step_label(number, fstype, mode):
+    return f"Partition {number} ({fstype or 'brute'}) · {MODE_LABELS.get(mode, mode)}"
+
+
 def _data_steps(plan, sector_size):
-    return [(f"Partition {e.number} ({p.fstype or 'brute'})", e.size * sector_size)
+    return [(_step_label(e.number, p.fstype, mode), e.size * sector_size)
             for e, p, mode, _ in plan if mode in ("partclone", "dd")]
 
 
@@ -180,7 +187,7 @@ def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=N
     pt.write_table(runner, disk, table_text, new_uuids=new_uuids)
     pt.restore_boot_area(runner, disk.path, table, boot)
 
-    runner.plan([(f"Partition {r['number']} ({r['fstype'] or 'brute'})", r["size"])
+    runner.plan([(_step_label(r["number"], r["fstype"], r["mode"]), r["size"])
                  for r in manifest["partitions"] if r.get("file")])
     step = 0
     for rec in manifest["partitions"]:
