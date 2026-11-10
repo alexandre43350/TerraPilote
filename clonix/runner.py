@@ -36,7 +36,7 @@ PIPE_SIZE = 1024 * 1024
 C_LOCALE = dict(os.environ, LC_ALL="C")  # sorties de dd/partclone non traduites
 
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
-_PC_DONE = re.compile(r"Complete(?:d)?:\s*([\d.]+)%")
+_PC_DONE = re.compile(r"Completed:\s*([\d.]+)%")
 _PC_RATE = re.compile(r"([\d.]+)\s*([KMGT]?)i?B/min")
 _PC_LEFT = re.compile(r"Remaining:\s*(\d+):(\d+):(\d+)")
 _DD_BYTES = re.compile(r"^(\d+) bytes")
@@ -57,7 +57,14 @@ def progress_kind(argv):
 
 
 def parse_partclone(line):
-    """Retourne (fraction, débit o/s, secondes restantes) ou None."""
+    """Retourne (fraction, débit o/s, secondes restantes) ou None.
+
+    partclone affiche deux lignes : « Elapsed … Completed: X% » (avancement sur
+    les blocs utilisés, celle qui compte) et « current block … Complete: Y% »
+    (position sur toute la partition, trompeuse : la ligne est ignorée).
+    """
+    if "current block" in line:
+        return None
     m = _PC_DONE.search(line)
     if not m:
         return None
@@ -149,11 +156,10 @@ class Runner:
         total = sum(w for _, w in self._steps)
         before = sum(w for _, w in self._steps[: self._step])
         elapsed = time.monotonic() - self._step_started
-        if rate is None and elapsed > 0.5:
-            done = done_bytes if done_bytes is not None else fraction * weight
-            rate = done / elapsed
-        if eta is None and rate and fraction < 1:
-            eta = (1 - fraction) * weight / rate
+        if rate is None and done_bytes is not None and elapsed > 0.5:
+            rate = done_bytes / elapsed
+        if eta is None and 0.001 < fraction < 1 and elapsed > 1:
+            eta = elapsed * (1 - fraction) / fraction
         self.reporter.progress({
             "label": label,
             "step": self._step + 1,

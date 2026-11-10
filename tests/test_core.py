@@ -431,3 +431,43 @@ class ClonixKeyStorageTest(unittest.TestCase):
         r = FakeRunner(tree=self._tree(data_label="PERSO"), live_disk="/dev/sdu")
         with self.assertRaisesRegex(ClonixError, "CLONIX-DATA"):
             storage.mount_data_partition(r, "/tmp/nowhere-clonix")
+
+
+class PartcloneTwoLineProgressTest(unittest.TestCase):
+    """Sortie réelle de partclone : la ligne « current block … Complete » ne doit
+    pas fausser l'avancement ni l'estimation du temps restant."""
+
+    def test_block_line_ignored(self):
+        from clonix.runner import parse_partclone
+        self.assertIsNone(parse_partclone(
+            "current block:     123456, total block:  124000000, Complete:   1.50%"))
+
+    def test_eta_follows_used_data_not_partition(self):
+        events = []
+
+        class Rec:
+            def log(self, m):
+                pass
+
+            def progress(self, p):
+                events.append(p)
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        tool = os.path.join(tmp.name, "partclone.fake")
+        # 50 % des données utilisées copiées, mais seulement 1,5 % de la partition
+        # parcourue (Windows est rangé au début du disque).
+        with open(tool, "w") as f:
+            f.write("#!/bin/sh\n"
+                    "printf 'Elapsed: 00:03:00, Remaining: 00:03:00, Completed:  50.00%%,   6.40GB/min,\\n' >&2\n"
+                    "printf 'current block:    1860000, total block:  124000000, Complete:   1.50%%\\033[A\\n' >&2\n")
+        os.chmod(tool, 0o755)
+        r = Runner(reporter=Rec())
+        r.plan([("Partition 3 (ntfs)", 510 * GIB)])
+        r.start_step(0)
+        r.pipeline([[tool]])
+        self.assertEqual(len(events), 2)  # start_step + la ligne « Completed » uniquement
+        last = events[-1]
+        self.assertAlmostEqual(last["fraction"], 0.5)
+        self.assertEqual(last["eta"], 180)  # 3 min, pas ~1h20
+        self.assertAlmostEqual(last["rate"], 6.4 * 1024 ** 3 / 60)
