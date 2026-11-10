@@ -223,8 +223,10 @@ class App:
             image = body["image"]
 
             def verify(r):
-                r.log(f"Vérification de « {image} »…")
-                manifest, bad = im.verify(im.resolve(image, d))
+                r.log(f"Vérification de « {image} » : relecture de chaque fichier…")
+                r.plan([(f"Vérification de « {image} »", 1)])
+                r.start_step(0)
+                manifest, bad = im.verify(im.resolve(image, d), progress=r.byte_progress())
                 if bad:
                     raise ClonixError("Image corrompue : " + ", ".join(f"{n} ({why})" for n, why in bad))
                 r.log(f"Image intacte : {len(manifest['files'])} fichiers vérifiés.")

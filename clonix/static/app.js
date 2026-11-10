@@ -312,14 +312,15 @@ function targetProblem(d, need, exclude) {
 const flow = () => icon("arrow", "flow");
 
 function dangerConfirm(d, onValid, opts = {}) {
-  const input = h("input", { placeholder: d.name, autocomplete: "off", spellcheck: "false" });
+  // Une case à cocher plutôt qu'une saisie : un geste volontaire, sans taper.
+  // Le serveur exige toujours le nom du disque, envoyé quand la case est cochée.
+  const box = h("input", { type: "checkbox" });
   const zone = h("div", { class: "danger-zone" },
     h("h3", {}, icon("warn"), opts.title || "Effacement total du disque"),
     h("p", { class: "note" }, opts.text || `Toutes les données de ${d.path} (${d.model || "disque"}, ${size(d.size)}) seront définitivement remplacées.`),
-    h("div", { class: "field", style: "margin:14px 0 0" },
-      h("label", {}, "Tapez ", h("code", {}, d.name), " pour confirmer"), input));
-  input.addEventListener("input", () => onValid(input.value.trim() === d.name, input.value.trim()));
-  setTimeout(() => input.focus(), 60);
+    h("label", { class: "confirm-box" }, box,
+      h("span", {}, opts.confirmLabel || "Je confirme : effacer ", h("strong", {}, d.path), ` (${d.model || "disque"}, ${size(d.size)})`)));
+  box.addEventListener("change", () => onValid(box.checked, box.checked ? d.name : ""));
   return zone;
 }
 
@@ -473,6 +474,7 @@ function wizardWinfix(step = 0, sel = {}) {
     diskCard(d), h("div", { style: "height:18px" }),
     dangerConfirm(d, (valid, v) => { typed = v; go.disabled = !valid; }, {
       title: "Modification du registre de Windows",
+      confirmLabel: "Je confirme : réparer le Windows de ",
       text: `Seul le registre système du Windows de ${d.path} est modifié ; vos fichiers ne sont pas touchés. Si le PC utilise Intel VMD (réglage du BIOS), désactivez VMD en plus.`,
     }),
     h("div", { class: "wiz-foot" }, h("button", { class: "btn", onclick: () => wizardWinfix(0, sel) }, "Retour"), go));
@@ -538,6 +540,7 @@ async function wizardPassword(step = 0, sel = {}) {
     isWin ? h("p", { class: "note" }, "Sous Windows, le mot de passe est seulement effacé : vous en choisirez un nouveau au premier démarrage (définir un mot de passe précis n'est pas fiable sous Windows 10/11).") : null,
     dangerConfirm(d, (valid, v) => { typed = v; sync(); }, {
       title: "Modification du poste",
+      confirmLabel: "Je confirme : modifier les comptes de ",
       text: `Seul le fichier des comptes de ${d.path} sera modifié ; vos fichiers et le système ne sont pas touchés. Le compte choisi pourra se connecter différemment.`,
     }),
     h("div", { class: "wiz-foot" }, h("button", { class: "btn", onclick: () => wizardPassword(0, { disk: sel.disk }) }, "Retour"), go));

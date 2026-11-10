@@ -40,7 +40,10 @@ def receiver_cmd(interface=None, portbase=DEFAULT_PORTBASE):
 
 def send(runner, name, receivers, image_dir=None, **opts):
     path = im.resolve(name, image_dir)
-    manifest, bad = im.verify(path)
+    runner.log("Vérification de l'image avant l'envoi…")
+    runner.plan([("Vérification de l'image", 1), ("Diffusion", 1)])
+    runner.start_step(0)
+    manifest, bad = im.verify(path, progress=runner.byte_progress())
     if bad:
         raise ClonixError("Image corrompue, envoi annulé : " + ", ".join(n for n, _ in bad))
     cmd = sender_cmd(receivers, **opts)
@@ -51,9 +54,9 @@ def send(runner, name, receivers, image_dir=None, **opts):
     if runner.dry_run:
         runner.log(f"[dry-run] tar {path} | {' '.join(cmd)}")
         return manifest
-    total = sum(f["size"] for f in manifest["files"].values())
-    runner.plan([(f"Diffusion de « {manifest['name']} »", total)])
-    runner.start_step(0)
+    total = im.image_bytes(manifest)
+    runner.plan([("Vérification de l'image", total), (f"Diffusion de « {manifest['name']} »", total)])
+    runner.start_step(1)
     proc = runner.popen(cmd, stdin=subprocess.PIPE)
     try:
         im.write_tar_stream(path, manifest, _Counting(proc.stdin, runner, total))

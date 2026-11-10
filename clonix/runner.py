@@ -171,6 +171,13 @@ class Runner:
             "eta": eta,
         })
 
+    def byte_progress(self):
+        """Rappel de progression (octets traités, total) pour une étape en cours."""
+        def callback(done, total):
+            self.check_cancel()
+            self.emit(min(done / total, 1.0) if total else 1.0, done_bytes=done)
+        return callback
+
     # ------------------------------------------------------------- annulation
     def cancel(self):
         self.cancelled = True

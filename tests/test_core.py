@@ -568,3 +568,36 @@ class SlimWindowsTest(unittest.TestCase):
         r = NoMount(tree=tree, dumps={"/dev/sda": dump}, tools=["zstd", "partclone.ntfs"])
         ops.capture(r, "/dev/sda", "win", tmp.name, slim=True)  # ne lève pas
         self.assertIn("allègement impossible", r.reporter.out.getvalue())
+
+
+class VerifyProgressTest(unittest.TestCase):
+    def test_verify_reports_progress(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path, manifest = ops.capture(FakeRunner(), "/dev/sda", "img", tmp.name)
+        seen = []
+        _, bad = im.verify(path, progress=lambda done, total: seen.append((done, total)))
+        self.assertEqual(bad, [])
+        total = im.image_bytes(manifest)
+        self.assertEqual(seen[-1], (total, total))
+
+    def test_byte_progress_emits_and_can_cancel(self):
+        events = []
+
+        class Rec:
+            def log(self, m):
+                pass
+
+            def progress(self, p):
+                events.append(p)
+
+        from clonix.errors import Cancelled
+        r = Runner(reporter=Rec())
+        r.plan([("Vérification", 1)])
+        r.start_step(0)
+        cb = r.byte_progress()
+        cb(50, 100)
+        self.assertEqual(events[-1]["fraction"], 0.5)
+        r.cancel()
+        with self.assertRaises(Cancelled):
+            cb(60, 100)

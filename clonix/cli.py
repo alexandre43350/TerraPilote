@@ -79,7 +79,10 @@ def cmd_clone(runner, args):
 
 def cmd_verify(runner, args):
     path = im.resolve(args.name, args.dir)
-    manifest, bad = im.verify(path)
+    runner.plan([("Vérification", 1)])
+    runner.start_step(0)
+    manifest, bad = im.verify(path, progress=runner.byte_progress())
+    runner.log("")
     for name, reason in bad:
         print(f"ERREUR {name} : {reason}")
     if bad:

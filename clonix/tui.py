@@ -192,7 +192,9 @@ def do_verify(runner, image_dir):
     name = pick_image(image_dir)
     os.system("clear")
     print("Vérification en cours…")
-    manifest, bad = im.verify(im.resolve(name, image_dir))
+    runner.plan([("Vérification", 1)])
+    runner.start_step(0)
+    manifest, bad = im.verify(im.resolve(name, image_dir), progress=runner.byte_progress())
     if bad:
         message("Image CORROMPUE :\n" + "\n".join(f"  {n} : {r}" for n, r in bad))
     else:

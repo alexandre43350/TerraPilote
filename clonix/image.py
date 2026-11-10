@@ -17,6 +17,7 @@ import hashlib
 import json
 import os
 import tarfile
+import time
 
 from clonix import __version__
 from clonix.errors import ClonixError
@@ -177,25 +178,44 @@ def write_tar_stream(image_path, manifest, fileobj):
             tar.add(os.path.join(image_path, name), arcname=name, recursive=False)
 
 
-def verify(image_path):
-    """Vérifie toutes les sommes. Retourne la liste des fichiers en erreur."""
+def image_bytes(manifest):
+    return sum(rec.get("size", 0) for rec in manifest["files"].values())
+
+
+def verify(image_path, progress=None):
+    """Vérifie toutes les sommes. Retourne (manifeste, fichiers en erreur).
+
+    ``progress(octets_lus, total)`` est appelé régulièrement pendant la relecture
+    (une image de plusieurs dizaines de Go prend quelques minutes).
+    """
     with open(os.path.join(image_path, MANIFEST), "rb") as f:
         manifest = load_manifest(f)
+    total = image_bytes(manifest)
+    done = 0
+    last = 0.0
     bad = []
     for name, rec in manifest["files"].items():
         path = os.path.join(image_path, name)
         if not os.path.isfile(path):
             bad.append((name, "manquant"))
+            done += rec.get("size", 0)
             continue
         h = hashlib.sha256()
         size = 0
         with open(path, "rb") as f:
             while True:
-                buf = f.read(4 * 1024 * 1024)
+                buf = f.read(8 * 1024 * 1024)
                 if not buf:
                     break
                 h.update(buf)
                 size += len(buf)
+                done += len(buf)
+                now = time.monotonic()
+                if progress and now - last >= 0.5:
+                    last = now
+                    progress(done, total)
         if size != rec["size"] or h.hexdigest() != rec["sha256"]:
             bad.append((name, "somme SHA-256 différente"))
+    if progress:
+        progress(total, total)
     return manifest, bad
