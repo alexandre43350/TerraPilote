@@ -4,6 +4,7 @@ import io
 import json
 import os
 import shutil
+import tempfile
 
 from clonix import disks as dk
 from clonix import fsclone as fc
@@ -52,7 +53,44 @@ def _data_steps(plan, sector_size):
             for e, p, mode, _ in plan if mode in ("partclone", "dd")]
 
 
-def capture(runner, disk_path, name, image_dir=None, compression="zstd", level="auto", description=""):
+WINDOWS_SCRATCH = ("pagefile.sys", "swapfile.sys")
+
+
+def slim_windows(runner, disk):
+    """Supprime les fichiers jetables de Windows avant la capture.
+
+    - hiberfil.sys (veille prolongée / démarrage rapide) : supprimé par ntfs-3g
+      grâce à l'option remove_hiberfile. Le déployer sur un autre PC est aussi
+      une source de problèmes au premier démarrage.
+    - pagefile.sys, swapfile.sys : fichiers d'échange, recréés par Windows.
+    Ces fichiers pèsent souvent 5 à 20 Go et se compressent mal ; AOMEI et
+    Acronis les excluent aussi. En cas d'échec sur une partition (volume marqué
+    à vérifier, chiffré…), on continue sans l'alléger.
+    """
+    for part in disk.partitions:
+        if part.fstype != "ntfs":
+            continue
+        mp = tempfile.mkdtemp(prefix="clonix-slim-")
+        try:
+            try:
+                runner.run(["mount", "-t", "ntfs-3g", "-o", "remove_hiberfile", part.path, mp])
+            except ClonixError as exc:
+                runner.log(f"  {part.path} : allègement impossible ({exc}), copie complète")
+                continue
+            try:
+                runner.run(["rm", "-f"] + [os.path.join(mp, f) for f in WINDOWS_SCRATCH])
+                runner.log(f"  {part.path} : fichiers d'échange et de veille prolongée retirés")
+            finally:
+                runner.run(["umount", mp], check=False)
+        finally:
+            try:
+                os.rmdir(mp)
+            except OSError:
+                pass
+
+
+def capture(runner, disk_path, name, image_dir=None, compression="zstd", level="auto", description="",
+            slim=False):
     disk = dk.get_disk(runner, disk_path)
     dk.check_readable_source(disk)
     dest = im.resolve(name, image_dir)
@@ -66,6 +104,9 @@ def capture(runner, disk_path, name, image_dir=None, compression="zstd", level="
     if comp and not runner.which(comp[0]):
         raise ClonixError(f"Compresseur introuvable : {compression}")
 
+    if slim:
+        runner.log("Allègement : retrait des fichiers jetables de Windows…")
+        slim_windows(runner, disk)
     table_text = pt.dump_table(runner, disk.path)
     table, plan = plan_partitions(runner, disk, table_text)
     manifest = im.new_manifest(os.path.basename(dest), disk, table, description)

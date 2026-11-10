@@ -344,6 +344,9 @@ function wizardCapture(step = 0, sel = {}) {
   const d = S.disks.find((x) => x.path === sel.disk);
   const name = h("input", { value: sel.name || `${d.name}-${today()}` });
   const desc = h("input", { value: sel.description || "", placeholder: "ex. Windows 11 + Office, poste accueil" });
+  const hasNtfs = d.partitions.some((p) => p.fstype === "ntfs");
+  const slimBox = h("input", { type: "checkbox" });
+  slimBox.checked = sel.slim !== false;
   let level = sel.level || "auto";
   const seg = h("div", { class: "seg" }, [["auto", "Auto (recommandé)"], ["1", "Ultra-rapide"], ["6", "Équilibré"], ["15", "Compact"]].map(([v, l]) =>
     h("button", { class: v === level ? "on" : "", onclick: (e) => { level = v; seg.querySelectorAll("button").forEach((b) => b.classList.remove("on")); e.currentTarget.classList.add("on"); } }, l)));
@@ -355,8 +358,11 @@ function wizardCapture(step = 0, sel = {}) {
       h("div", { class: "field" }, h("label", {}, "Description"), desc)),
     h("div", { class: "field" }, h("label", {}, "Compression"), seg,
       h("p", { class: "note" }, "Auto : compression la plus rapide sur un disque local, adaptée au débit sur un partage réseau. Seuls les blocs utilisés sont copiés.")),
+    hasNtfs ? h("label", { class: "check" }, slimBox, h("span", {},
+      h("strong", {}, "Alléger l'image (recommandé pour Windows). "),
+      "Retire le fichier de veille prolongée et le fichier d'échange de Windows (souvent 5 à 20 Go), que Windows recrée tout seul. Capture plus rapide et image plus petite, comme AOMEI ou Acronis.")) : null,
     wizFoot({ fn: () => wizardCapture(0, { ...sel, name: name.value, description: desc.value, level }) },
-      { label: "Lancer la capture", fn: () => launch("capture", { disk: d.path, name: name.value.trim(), description: desc.value, level }) }));
+      { label: "Lancer la capture", fn: () => launch("capture", { disk: d.path, name: name.value.trim(), description: desc.value, level, slim: hasNtfs && slimBox.checked }) }));
   name.focus();
 }
 

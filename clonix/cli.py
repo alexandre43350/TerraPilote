@@ -56,7 +56,7 @@ def cmd_images(runner, args):
 
 def cmd_capture(runner, args):
     ops.capture(runner, args.disk, args.name, args.dir, compression=args.compression,
-                level=args.level, description=args.description)
+                level=args.level, description=args.description, slim=args.slim)
     return 0
 
 
@@ -204,6 +204,8 @@ def build_parser():
     sp.add_argument("--level", default="auto",
                     help="niveau zstd 1-19, « adapt », ou « auto » (défaut : 1 en local, adaptatif sur le réseau)")
     sp.add_argument("--description", default="")
+    sp.add_argument("--slim", action="store_true",
+                    help="retirer hiberfil.sys et pagefile.sys de Windows avant la capture (recréés par Windows)")
 
     sp_deploy = add("deploy", cmd_deploy, "restaurer une image sur un disque")
     sp_deploy.add_argument("name", help="nom ou chemin de l'image")

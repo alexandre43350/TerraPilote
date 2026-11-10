@@ -131,8 +131,10 @@ def do_capture(runner, image_dir):
     disk = pick_disk(runner, "Disque à capturer :", image_dir, writable=False)
     name = inputbox("Nom de l'image (sans espace) :", f"{disk.name}-{im.now_iso()[:10]}")
     description = inputbox("Description (facultatif) :")
+    slim = yesno("Alléger l'image ? (retire hiberfil.sys et pagefile.sys de Windows,\n"
+                 "recréés automatiquement : image plus petite, capture plus rapide)")
     os.system("clear")
-    ops.capture(runner, disk.path, name, image_dir, description=description)
+    ops.capture(runner, disk.path, name, image_dir, description=description, slim=slim)
     pause()
 
 

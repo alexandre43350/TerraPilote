@@ -517,3 +517,54 @@ class VentoyStorageTest(unittest.TestCase):
         from tests.fakes import lsblk_disk, lsblk_part, GIB
         tree = self._tree() + [lsblk_disk("sdb", 64 * GIB, [lsblk_part("sdb1", 64 * GIB, "exfat", label="CLONIX-DATA")])]
         self.assertEqual(storage.find_data_partition(FakeRunner(tree=tree)).path, "/dev/sdb1")
+
+
+class SlimWindowsTest(unittest.TestCase):
+    def _runner(self):
+        from tests.fakes import lsblk_disk, lsblk_part, GIB
+        tree = [lsblk_disk("sda", 20 * GIB, [
+            lsblk_part("sda1", 100 * 1024 * 1024, "vfat", label="EFI"),
+            lsblk_part("sda2", 10 * GIB, "ntfs", label="Windows"),
+        ])]
+        return FakeRunner(tree=tree, tools=["zstd", "partclone.fat", "partclone.ntfs"])
+
+    def test_capture_slim_removes_windows_scratch_files_first(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        r = self._runner()
+        ops.capture(r, "/dev/sda", "win", tmp.name, slim=True)
+        runs = r.commands("run")
+        mount = next(c for c in runs if c[0] == "mount")
+        self.assertEqual(mount[:5], ["mount", "-t", "ntfs-3g", "-o", "remove_hiberfile"])
+        self.assertEqual(mount[5], "/dev/sda2")
+        rm = next(c for c in runs if c[0] == "rm")
+        self.assertTrue(rm[2].endswith("pagefile.sys") and rm[3].endswith("swapfile.sys"))
+        self.assertIn(["umount", mount[6]], runs)
+        # l'allègement a lieu avant la copie
+        order = [c[0] for c in r.calls]
+        self.assertLess(r.calls.index(next(c for c in r.calls if c[0] == "run" and c[1][0] == "rm")),
+                        order.index("pipe"))
+        self.assertTrue(os.path.isfile(os.path.join(tmp.name, "win", ".ventoyignore")))
+
+    def test_capture_without_slim_does_not_touch_source(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        r = self._runner()
+        ops.capture(r, "/dev/sda", "win", tmp.name)
+        self.assertFalse([c for c in r.commands("run") if c[0] in ("mount", "rm")])
+
+    def test_slim_failure_is_not_fatal(self):
+        class NoMount(FakeRunner):
+            def run(self, argv, **kw):
+                if argv[0] == "mount":
+                    raise CommandError(argv, 14, "volume is dirty")
+                return super().run(argv, **kw)
+
+        from tests.fakes import lsblk_disk, lsblk_part, GIB
+        tree = [lsblk_disk("sda", 20 * GIB, [lsblk_part("sda2", 10 * GIB, "ntfs")])]
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        dump = GPT_DUMP.replace("/dev/sda1 :", "/dev/sda9 :")  # le dump a 4 partitions ; peu importe
+        r = NoMount(tree=tree, dumps={"/dev/sda": dump}, tools=["zstd", "partclone.ntfs"])
+        ops.capture(r, "/dev/sda", "win", tmp.name, slim=True)  # ne lève pas
+        self.assertIn("allègement impossible", r.reporter.out.getvalue())
