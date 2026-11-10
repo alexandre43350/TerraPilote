@@ -89,7 +89,7 @@ def confirm_erase(disk, what):
 def do_storage(runner, image_dir):
     options = []
     if storage.find_data_partition(runner):
-        options.append(("clonix", "Sur la clé Clonix elle-même (CLONIX-DATA)"))
+        options.append(("clonix", "Sur la clé de démarrage (CLONIX-DATA ou Ventoy)"))
     options += [
         ("local", "Disque ou clé USB branché sur ce PC"),
         ("smb", "Partage réseau Windows / Samba / NAS"),

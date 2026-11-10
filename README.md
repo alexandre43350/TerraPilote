@@ -132,7 +132,29 @@ choix : **la clé Clonix elle-même**, un disque externe, un partage Windows/NAS
 (SMB), un export NFS ou un serveur SSH. Depuis l'interface : **Dépôt d'images →
 Configurer**.
 
-### Stocker les images sur la clé Clonix
+### Stocker les images sur la clé avec Ventoy (une seule clé, comme AOMEI)
+
+Si vous démarrez Clonix avec **Ventoy**, les images peuvent aller directement
+dans la partition Ventoy, à côté des ISO. Pour un ISO Linux, Ventoy verrouille
+sa partition pendant que le système tourne ; l'option `VTOY_LINUX_REMOUNT` la
+rend de nouveau utilisable. Une seule fois, sous Windows :
+
+1. Mettez Ventoy à jour (**Ventoy2Disk → Mettre à jour**, vos fichiers sont
+   conservés) : il faut une version récente (1.0.97 ou plus).
+2. Sur la clé, créez un dossier **`ventoy`** (s'il n'existe pas) et copiez-y le
+   fichier [`live/ventoy/ventoy.json`](live/ventoy/ventoy.json) du projet. Si
+   vous avez déjà un `ventoy.json`, ajoutez simplement la ligne
+   `{ "VTOY_LINUX_REMOUNT": "1" }` dans sa section `control` (ou `control_uefi`
+   si elle existe : elle est prioritaire en démarrage UEFI).
+3. Copiez l'ISO de Clonix à la racine de la clé, comme d'habitude.
+
+Au démarrage, Clonix monte automatiquement la partition Ventoy comme dépôt. Les
+images apparaissent sous forme de dossiers sur la clé ; un fichier
+`.ventoyignore` empêche Ventoy de les afficher dans son menu. L'option est
+marquée « expérimentale » par Ventoy : si le dépôt reste « non monté », utilisez
+la méthode CLONIX-DATA ci-dessous.
+
+### Stocker les images sur la clé (méthode Rufus + CLONIX-DATA)
 
 La partie « système » de la clé est en lecture seule (c'est ce qui la rend
 démarrable). Pour ranger les images **sur la même clé**, ajoutez-lui une 2ᵉ

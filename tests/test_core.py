@@ -141,7 +141,7 @@ class CaptureDeployTest(unittest.TestCase):
         r, path, m = self._capture()
         self.assertEqual(path, os.path.join(self.dir, "poste-type"))
         self.assertEqual(sorted(os.listdir(path)), sorted([
-            "clonix.json", "table.sfdisk", "boot.img",
+            "clonix.json", "table.sfdisk", "boot.img", ".ventoyignore",
             "p1.partclone.zst", "p2.partclone.zst", "p3.dd.zst"]))
         modes = [(p["number"], p["mode"]) for p in m["partitions"]]
         self.assertEqual(modes, [(1, "partclone"), (2, "partclone"), (3, "dd"), (4, "swap")])
@@ -471,3 +471,49 @@ class PartcloneTwoLineProgressTest(unittest.TestCase):
         self.assertAlmostEqual(last["fraction"], 0.5)
         self.assertEqual(last["eta"], 180)  # 3 min, pas ~1h20
         self.assertAlmostEqual(last["rate"], 6.4 * 1024 ** 3 / 60)
+
+
+class VentoyStorageTest(unittest.TestCase):
+    """Clonix démarré via Ventoy : les images vont dans la partition Ventoy."""
+
+    def _tree(self, remount=True):
+        from tests.fakes import lsblk_disk, lsblk_part, GIB
+        part = lsblk_part("sda1", 256 * GIB, "exfat", label="Ventoy", children=[
+            {"name": "ventoy", "path": "/dev/mapper/ventoy", "type": "dm",
+             "fstype": "iso9660", "label": "CLONIX", "mountpoint": "/run/live/medium"},
+        ] + ([{"name": "sda1", "path": "/dev/mapper/sda1", "type": "dm",
+               "fstype": "exfat", "label": "Ventoy", "mountpoint": None}] if remount else []))
+        return [
+            lsblk_disk("nvme0n1", 512 * GIB, [lsblk_part("nvme0n1p3", 510 * GIB, "ntfs")]),
+            lsblk_disk("sda", 256 * GIB, [part], tran="usb"),
+        ]
+
+    def test_mapper_copy_preferred(self):
+        from clonix import storage
+        r = FakeRunner(tree=self._tree())
+        self.assertEqual(storage.find_data_partition(r).path, "/dev/mapper/sda1")
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(os.rmdir, tmp)
+        self.assertEqual(storage.mount_data_partition(r, tmp), "/dev/mapper/sda1")
+
+    def test_locked_partition_explains_remount(self):
+        from clonix import storage
+
+        class Busy(FakeRunner):
+            def run(self, argv, **kw):
+                if argv[0] == "mount":
+                    raise CommandError(argv, 32, "mount: /dev/sda1 already mounted or mount point busy.")
+                return super().run(argv, **kw)
+
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(os.rmdir, tmp)
+        with self.assertRaisesRegex(ClonixError, "VTOY_LINUX_REMOUNT"):
+            storage.mount_data_partition(Busy(tree=self._tree(remount=False)), tmp)
+        # au démarrage, l'échec reste silencieux
+        self.assertFalse(storage.auto_mount_data(Busy(tree=self._tree(remount=False)), tmp))
+
+    def test_clonix_data_wins_over_ventoy(self):
+        from clonix import storage
+        from tests.fakes import lsblk_disk, lsblk_part, GIB
+        tree = self._tree() + [lsblk_disk("sdb", 64 * GIB, [lsblk_part("sdb1", 64 * GIB, "exfat", label="CLONIX-DATA")])]
+        self.assertEqual(storage.find_data_partition(FakeRunner(tree=tree)).path, "/dev/sdb1")

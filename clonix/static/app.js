@@ -515,13 +515,13 @@ function storageDialog(kind) {
   const hasKey = S.storage.clonix_key;
   if (!kind) kind = hasKey ? "clonix" : "smb";
   const tabs = [];
-  if (hasKey) tabs.push(["clonix", "Clé Clonix"]);
+  if (hasKey) tabs.push(["clonix", "Clé de démarrage"]);
   tabs.push(["smb", "Partage Windows / NAS"], ["nfs", "NFS"], ["local", "Disque local"]);
   const seg = h("div", { class: "seg" }, tabs.map(([k, l]) => h("button", { class: k === kind ? "on" : "", onclick: () => storageDialog(k) }, l)));
   let form, submit;
   if (kind === "clonix") {
     form = [h("div", { class: "note", style: "margin:0" },
-      "Les images seront enregistrées sur la clé Clonix elle-même, dans son espace de stockage « CLONIX-DATA ». Pratique : vous pouvez ensuite relire cette clé depuis Windows pour récupérer vos images.")];
+      "Les images seront enregistrées sur la clé qui a démarré Clonix : dans sa partition « CLONIX-DATA », ou dans la partition Ventoy si vous utilisez Ventoy. Vous pourrez relire la clé depuis Windows pour récupérer vos images.")];
     submit = () => ({ kind: "clonix" });
   } else if (kind === "smb") {
     const share = h("input", { placeholder: "//192.168.1.10/images" });

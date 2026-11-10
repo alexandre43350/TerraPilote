@@ -78,6 +78,9 @@ def capture(runner, disk_path, name, image_dir=None, compression="zstd", level="
         if os.path.exists(tmp):
             shutil.rmtree(tmp)
         os.makedirs(tmp)
+        # Si le dépôt est une clé Ventoy, ce fichier empêche Ventoy d'afficher le
+        # « boot.img » de l'image dans son menu de démarrage.
+        open(os.path.join(tmp, ".ventoyignore"), "w").close()
     try:
         _write_small(runner, tmp, manifest, im.TABLE, table_text.encode())
         _write_small(runner, tmp, manifest, im.BOOT, pt.save_boot_area(runner, disk.path, table))
