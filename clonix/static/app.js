@@ -41,6 +41,9 @@ const ICONS = {
   cloud: P('<path d="M7 18a4.5 4.5 0 0 1-.5-9A6 6 0 0 1 18 9.5a4 4 0 0 1-1 8.5z"/>'),
   check: P('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
   stack: P('<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>'),
+  key: P('<circle cx="8" cy="8" r="4.5"/><path d="M11.2 11.2L20 20M17 17l2-2M14 14l2.5-2.5"/>'),
+  win: P('<path d="M3 5l8-1v7H3zM13 3.7L21 3v8h-8zM3 13h8v6l-8-1zM13 13h8v8l-8-1z"/>'),
+  tux: P('<path d="M12 3a3.5 3.5 0 0 1 3.5 3.5v3c2 1.5 3.5 4 3.5 7 0 1.5-3 3.5-7 3.5s-7-2-7-3.5c0-3 1.5-5.5 3.5-7v-3A3.5 3.5 0 0 1 12 3z"/><path d="M10 7.5h.01M14 7.5h.01"/>'),
 };
 
 function size(n) {
@@ -135,6 +138,7 @@ const ACTIONS = [
   { id: "send", c: "c-amber", title: "Diffuser", text: "Une image vers plusieurs PC", run: () => wizardSend(), small: true },
   { id: "recv", c: "c-cyan", title: "Recevoir", text: "Image depuis le réseau", run: () => wizardReceive(), small: true },
   { id: "verify", c: "", title: "Vérifier", text: "Intégrité SHA-256", run: () => wizardVerify(), small: true },
+  { id: "key", c: "c-amber", title: "Mot de passe", text: "Réinitialiser l'admin d'un poste", run: () => wizardPassword(), small: true },
 ];
 
 function renderActions() {
@@ -253,7 +257,7 @@ function imageCard(i, opts = {}) {
 
 /* ----------------------------------------------------------------- modale */
 function openModal(...content) {
-  $("#modal-body").replaceChildren(...content);
+  $("#modal-body").replaceChildren(...content.flat().filter((c) => c !== null && c !== undefined && c !== false));
   $("#modal").hidden = false;
 }
 function closeModal() { $("#modal").hidden = true; }
@@ -305,11 +309,11 @@ function targetProblem(d, need, exclude) {
 
 const flow = () => icon("arrow", "flow");
 
-function dangerConfirm(d, onValid) {
+function dangerConfirm(d, onValid, opts = {}) {
   const input = h("input", { placeholder: d.name, autocomplete: "off", spellcheck: "false" });
   const zone = h("div", { class: "danger-zone" },
-    h("h3", {}, icon("warn"), "Effacement total du disque"),
-    h("p", { class: "note" }, `Toutes les données de ${d.path} (${d.model || "disque"}, ${size(d.size)}) seront définitivement remplacées.`),
+    h("h3", {}, icon("warn"), opts.title || "Effacement total du disque"),
+    h("p", { class: "note" }, opts.text || `Toutes les données de ${d.path} (${d.model || "disque"}, ${size(d.size)}) seront définitivement remplacées.`),
     h("div", { class: "field", style: "margin:14px 0 0" },
       h("label", {}, "Tapez ", h("code", {}, d.name), " pour confirmer"), input));
   input.addEventListener("input", () => onValid(input.value.trim() === d.name, input.value.trim()));
@@ -449,6 +453,64 @@ function wizardVerify(sel = {}) {
     wizFoot(null, { label: "Vérifier", disabled: !sel.image, fn: () => launch("verify", { image: sel.image }) }));
 }
 
+async function wizardPassword(step = 0, sel = {}) {
+  if (step === 0) {
+    return openModal(wizHead("Réinitialiser le mot de passe", "Choisissez le disque du poste à réinitialiser. Seul le fichier des comptes est modifié, pas vos données.", 0, 2),
+      pickDisks(S.disks.filter((d) => !d.protected), sel.disk, (d) => wizardPassword(0, { ...sel, disk: d.path }),
+        (d) => (d.mounted ? "monté" : d.partitions.length ? null : "vide")),
+      wizFoot(null, { label: "Analyser le disque", disabled: !sel.disk, fn: () => wizardPassword(1, sel) }));
+  }
+  const d = S.disks.find((x) => x.path === sel.disk);
+  if (!sel.info) {
+    openModal(wizHead("Réinitialiser le mot de passe", `Analyse de ${d.path}…`, 1, 2),
+      h("div", { class: "empty" }, "Montage de la partition système et lecture des comptes…"));
+    try {
+      const info = await api("accounts", { disk: d.path });
+      return wizardPassword(1, { ...sel, info });
+    } catch (e) {
+      return openModal(wizHead("Réinitialiser le mot de passe", `Disque ${d.path}`, 1, 2),
+        h("p", { class: "error-box" }, e.message),
+        wizFoot({ fn: () => wizardPassword(0, sel) }, null));
+    }
+  }
+  const info = sel.info;
+  const isWin = info.os === "windows";
+  let act = isWin ? "clear" : "clear";
+  let typed = "";
+  const pass = h("input", { type: "password", autocomplete: "new-password", placeholder: "nouveau mot de passe" });
+  const passField = h("div", { class: "field", hidden: true }, h("label", {}, "Nouveau mot de passe"), pass);
+  const go = h("button", { class: "btn danger", disabled: true }, "Supprimer le mot de passe");
+
+  function sync() {
+    go.textContent = act === "set" ? "Changer le mot de passe" : "Supprimer le mot de passe";
+    passField.hidden = act !== "set";
+    go.disabled = !sel.user || typed !== d.name || (act === "set" && !pass.value);
+  }
+  pass.addEventListener("input", sync);
+  go.onclick = () => launch("password", { disk: d.path, user: sel.user, action: act, password: pass.value, confirm: typed });
+
+  const seg = isWin ? null : h("div", { class: "seg" }, [["clear", "Supprimer le mot de passe"], ["set", "Définir un nouveau"]].map(([v, l]) =>
+    h("button", { class: v === act ? "on" : "", onclick: (e) => { act = v; seg.querySelectorAll("button").forEach((b) => b.classList.remove("on")); e.currentTarget.classList.add("on"); sync(); } }, l)));
+
+  const chips = h("div", { class: "pick-list" }, info.accounts.map((a) => {
+    const el = h("div", { class: "img pick" + (sel.user === a.name ? " selected" : ""), onclick: () => { sel.user = a.name; chips.querySelectorAll(".pick").forEach((x) => x.classList.remove("selected")); el.classList.add("selected"); sync(); } },
+      h("div", { class: "row-top" }, icon(isWin ? "win" : "tux", "tile-ico"),
+        h("div", { class: "meta" }, h("strong", {}, a.name), h("div", { class: "sub" }, a.admin ? "Administrateur" : "Utilisateur")),
+        a.admin ? h("span", { class: "badge lock" }, "admin") : null));
+    return el;
+  }));
+  openModal(wizHead("Réinitialiser le mot de passe", `${isWin ? "Windows" : "Linux"} détecté sur ${info.partition}. Choisissez le compte.`, 1, 2),
+    chips,
+    h("div", { style: "height:16px" }),
+    seg, seg ? h("div", { style: "height:14px" }) : null, passField,
+    isWin ? h("p", { class: "note" }, "Sous Windows, le mot de passe est seulement effacé : vous en choisirez un nouveau au premier démarrage (définir un mot de passe précis n'est pas fiable sous Windows 10/11).") : null,
+    dangerConfirm(d, (valid, v) => { typed = v; sync(); }, {
+      title: "Modification du poste",
+      text: `Seul le fichier des comptes de ${d.path} sera modifié ; vos fichiers et le système ne sont pas touchés. Le compte choisi pourra se connecter différemment.`,
+    }),
+    h("div", { class: "wiz-foot" }, h("button", { class: "btn", onclick: () => wizardPassword(0, { disk: sel.disk }) }, "Retour"), go));
+}
+
 function storageDialog(kind = "smb") {
   const tabs = [["smb", "Partage Windows / NAS"], ["nfs", "NFS"], ["local", "Disque local"]];
   const seg = h("div", { class: "seg" }, tabs.map(([k, l]) => h("button", { class: k === kind ? "on" : "", onclick: () => storageDialog(k) }, l)));
@@ -500,7 +562,7 @@ async function mount(body) {
 
 /* ------------------------------------------------------------------ tâche */
 const CIRC = 2 * Math.PI * 52;
-const KINDS = { capture: "Capture", deploy: "Déploiement", clone: "Clonage", "mcast-send": "Diffusion multicast", "mcast-recv": "Réception multicast", verify: "Vérification" };
+const KINDS = { capture: "Capture", deploy: "Déploiement", clone: "Clonage", "mcast-send": "Diffusion multicast", "mcast-recv": "Réception multicast", verify: "Vérification", password: "Mot de passe" };
 let shownJob = null, shownLogs = -1, history = [];
 
 function renderSpark(job) {

@@ -8,6 +8,8 @@ gdisk
 parted
 dosfstools
 ntfs-3g
+chntpw
+openssl
 exfatprogs
 e2fsprogs
 btrfs-progs

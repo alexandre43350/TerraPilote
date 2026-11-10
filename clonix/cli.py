@@ -140,6 +140,35 @@ def cmd_web(runner, args):
     return 0
 
 
+def cmd_password(runner, args):
+    from clonix import password as pw
+    if args.list:
+        info = pw.accounts(runner, args.disk)
+        print(f"Système : {info['os']} sur {info['partition']}")
+        for a in info["accounts"]:
+            print(f"  {a['name']}" + ("  (administrateur)" if a["admin"] else ""))
+        return 0
+    if not args.user:
+        raise ClonixError("Indiquez le compte avec --user (ou --list pour les voir)")
+    action = "set" if args.set else "clear"
+    new = None
+    if args.set:
+        import getpass
+        new = os.environ.get("CLONIX_NEW_PASSWORD") or getpass.getpass(f"Nouveau mot de passe pour {args.user} : ")
+
+    def confirm(disk, os_type, user, act):
+        verb = "SUPPRIMER le mot de passe de" if act == "clear" else "CHANGER le mot de passe de"
+        if args.yes or runner.dry_run:
+            return
+        print(f"\n  Clonix va {verb} « {user} » sur {disk.path} ({os_type}).", file=sys.stderr)
+        print(f"  Tapez « {disk.name} » pour confirmer : ", end="", file=sys.stderr, flush=True)
+        if sys.stdin.readline().strip() != disk.name:
+            raise Cancelled("Opération annulée")
+
+    pw.reset(runner, args.disk, args.user, action, password=new, confirm=confirm)
+    return 0
+
+
 def cmd_menu(runner, args):
     from clonix import tui
     return tui.main(runner, args.dir)
@@ -206,6 +235,14 @@ def build_parser():
     sp6.add_argument("--domain", help="domaine SMB")
 
     add("umount", cmd_umount, "démonter le dépôt d'images")
+
+    sp8 = add("password", cmd_password, "réinitialiser le mot de passe administrateur d'un poste déployé")
+    sp8.add_argument("disk", help="disque du poste, ex. /dev/sda")
+    sp8.add_argument("--user", help="compte à réinitialiser (ex. Administrator, root)")
+    sp8.add_argument("--list", action="store_true", help="lister les comptes du poste")
+    sp8.add_argument("--set", action="store_true",
+                     help="définir un nouveau mot de passe (Linux) au lieu de l'effacer")
+    sp8.add_argument("--yes", action="store_true", help="ne pas demander de confirmation")
 
     sp7 = add("web", cmd_web, "interface graphique (serveur web local)")
     sp7.add_argument("--port", type=int, default=8470)

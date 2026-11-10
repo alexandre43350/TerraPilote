@@ -143,7 +143,38 @@ class DemoApp(App):
     def action(self, name, body):
         if name in ("mcast-send", "mcast-recv"):
             return self._fake_multicast(name, body)
+        if name == "accounts":
+            return self._fake_accounts(body)
+        if name == "password":
+            return self._fake_password(body)
         return super().action(name, body)
+
+    def _fake_accounts(self, body):
+        disk = self._disk(body["disk"], writable=False)
+        windows = any(p.fstype == "ntfs" for p in disk.partitions)
+        if windows:
+            return {"os": "windows", "partition": disk.partitions[2].path if len(disk.partitions) > 2 else disk.path,
+                    "accounts": [{"name": "Administrateur", "admin": True}, {"name": "Marie", "admin": False},
+                                 {"name": "Invité", "admin": False}]}
+        return {"os": "linux", "partition": disk.partitions[0].path if disk.partitions else disk.path,
+                "accounts": [{"name": "root", "admin": True}, {"name": "admin", "admin": False}]}
+
+    def _fake_password(self, body):
+        disk = self._disk(body["disk"], writable=True)
+        self._confirm(disk, body)
+        user, act = body.get("user"), body.get("action")
+
+        def work(r):
+            r.plan([("Réinitialisation du mot de passe", 1)])
+            r.start_step(0)
+            r.log(f"Montage de la partition système de {disk.path}…")
+            time.sleep(1.2)
+            r.log(f"{'Suppression' if act != 'set' else 'Changement'} du mot de passe de « {user} »")
+            time.sleep(0.8)
+            r.emit(1.0)
+            r.log("Terminé.")
+        verb = "Changement" if act == "set" else "Suppression"
+        return self.start("password", f"{verb} du mot de passe de « {user} » → {disk.path}", work)
 
     def _fake_multicast(self, name, body):
         def work(r):

@@ -155,8 +155,29 @@ clonix clone /dev/sda /dev/sdb
 clonix mcast-send poste-type --receivers 12
 clonix mcast-recv /dev/sda
 clonix verify poste-type
+clonix password /dev/sda --list                # comptes du poste déployé
+clonix password /dev/sda --user Administrator  # efface le mot de passe Windows
+clonix password /dev/sda --user root --set     # définit un nouveau (Linux), demandé au clavier
 clonix --dry-run deploy poste-type /dev/sda   # affiche les actions sans rien écrire
 ```
+
+## Mot de passe administrateur
+
+Après un déploiement, **Mot de passe** (ou `clonix password`) redonne la main sur
+le compte administrateur local du poste, sans le démarrer. Clonix monte la
+partition système du disque choisi et agit sur le compte local :
+
+- **Windows** : via `chntpw` sur la ruche SAM. Le mot de passe est **effacé**
+  (vide) ; vous en choisirez un nouveau au premier démarrage. Définir un mot de
+  passe précis n'est pas fiable sous Windows 10/11, donc Clonix ne le propose pas.
+- **Linux** : en modifiant `/etc/shadow` — effacer le mot de passe, ou en
+  **définir** un nouveau (haché avec `openssl passwd -6`).
+
+Garde-fous : la clé Clonix, le disque du dépôt et tout disque monté sont refusés,
+comme pour un déploiement ; il faut taper le nom du disque pour confirmer. Ceci
+ne contourne aucun chiffrement : une partition BitLocker ou LUKS verrouillée ne
+se monte pas et l'opération s'arrête proprement. À n'utiliser que sur des postes
+que vous administrez.
 
 ## Bonnes pratiques Windows
 

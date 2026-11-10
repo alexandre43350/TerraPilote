@@ -221,6 +221,22 @@ class App:
                     raise ClonixError("Image corrompue : " + ", ".join(f"{n} ({why})" for n, why in bad))
                 r.log(f"Image intacte : {len(manifest['files'])} fichiers vérifiés.")
             return self.start("verify", f"Vérification de « {image} »", verify)
+        if name == "accounts":
+            from clonix import password as pw
+            disk = self._disk(body["disk"], writable=False)
+            return pw.accounts(self.inspect, disk.path)
+        if name == "password":
+            from clonix import password as pw
+            disk = self._disk(body["disk"], writable=True)
+            self._confirm(disk, body)
+            user = (body.get("user") or "").strip()
+            if not user:
+                raise ApiError("Indiquez le compte à réinitialiser")
+            act = "set" if body.get("action") == "set" else "clear"
+            pwd = body.get("password") if act == "set" else None
+            verb = "Suppression" if act == "clear" else "Changement"
+            return self.start("password", f"{verb} du mot de passe de « {user} » → {disk.path}",
+                              lambda r: pw.reset(r, disk.path, user, act, password=pwd))
         if name == "storage":
             return self._storage(body)
         if name == "power":
