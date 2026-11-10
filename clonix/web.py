@@ -190,7 +190,7 @@ class App:
                               lambda r: ops.capture(r, disk.path, image, d,
                                                     level=body.get("level", "auto"),
                                                     description=body.get("description", ""),
-                                                    slim=bool(body.get("slim", True))))
+                                                    slim=bool(body.get("slim", False))))
         if name == "deploy":
             disk = self._disk(body["disk"], writable=True)
             self._confirm(disk, body)
