@@ -102,7 +102,7 @@ diskutil unmountDisk /dev/diskN
 sudo dd if=live/out/clonix-AAAAMMJJ.iso of=/dev/rdiskN bs=4m
 ```
 
-La clé est basée sur Debian 12 (bookworm) et contient partclone, zstd, udpcast,
+La clé est basée sur Debian 13 (trixie, noyau 6.12) et contient partclone, zstd, udpcast,
 les outils NTFS/FAT/ext/Btrfs/XFS, les clients SMB/NFS/SSH et les pilotes réseau
 courants.
 

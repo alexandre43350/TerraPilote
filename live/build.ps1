@@ -13,5 +13,5 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 docker run --rm --privileged --platform linux/amd64 -e CLONIX_IN_CONTAINER=1 `
-    -v "${Root}:/src" debian:bookworm sh /src/live/build.sh
+    -v "${Root}:/src" debian:trixie sh /src/live/build.sh
 exit $LASTEXITCODE

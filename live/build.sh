@@ -17,7 +17,7 @@ ROOT=$(dirname "$HERE")
 if [ "${CLONIX_IN_CONTAINER:-0}" != 1 ]; then
     # --platform : sur Mac Apple Silicon, Docker construirait sinon pour ARM.
     exec docker run --rm --privileged --platform linux/amd64 -e CLONIX_IN_CONTAINER=1 \
-        -v "$ROOT":/src debian:bookworm sh /src/live/build.sh
+        -v "$ROOT":/src debian:trixie sh /src/live/build.sh
 fi
 
 apt-get update
@@ -27,13 +27,13 @@ WORK=/tmp/clonix-live
 rm -rf "$WORK" && mkdir -p "$WORK" && cd "$WORK"
 
 lb config \
-    --distribution bookworm \
+    --distribution trixie \
     --architecture amd64 \
     --archive-areas "main contrib non-free non-free-firmware" \
     --binary-images iso-hybrid \
     --debian-installer none \
     --memtest none \
-    --compression gzip \
+    --chroot-squashfs-compression-type zstd \
     --iso-application Clonix \
     --iso-volume CLONIX \
     --bootappend-live "boot=live components quiet loglevel=3 modprobe.blacklist=pcspkr locales=fr_FR.UTF-8 keyboard-layouts=fr timezone=Europe/Paris live-config.noautologin"
