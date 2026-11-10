@@ -28,7 +28,7 @@ try:
 except ImportError:
     fcntl = None
 
-from terrapilote.errors import Cancelled, CommandError, TerraPiloteError
+from clonix.errors import Cancelled, CommandError, ClonixError
 
 CHUNK = 8 * 1024 * 1024
 QUEUE_DEPTH = 6
@@ -224,7 +224,7 @@ class Runner:
                 stderr=subprocess.PIPE if capture else None,
             )
         except FileNotFoundError:
-            raise TerraPiloteError(f"Outil introuvable : {argv[0]}") from None
+            raise ClonixError(f"Outil introuvable : {argv[0]}") from None
         if check and proc.returncode != 0:
             raise CommandError(argv, proc.returncode, proc.stderr if capture else "")
         return proc.stdout if capture else ""
@@ -265,7 +265,7 @@ class Runner:
                     p = subprocess.Popen(argv, stdin=stdin, stdout=stdout, env=C_LOCALE,
                                          stderr=subprocess.PIPE if kind else None)
                 except FileNotFoundError:
-                    raise TerraPiloteError(f"Outil introuvable : {argv[0]}") from None
+                    raise ClonixError(f"Outil introuvable : {argv[0]}") from None
                 self._track(p)
                 procs.append(p)
                 for pipe in (p.stdin, p.stdout):
@@ -378,7 +378,7 @@ class Runner:
         try:
             p = subprocess.Popen(argv, stdin=stdin, stdout=stdout)
         except FileNotFoundError:
-            raise TerraPiloteError(f"Outil introuvable : {argv[0]}") from None
+            raise ClonixError(f"Outil introuvable : {argv[0]}") from None
         self._track(p)
         _grow_pipe(p.stdin)
         _grow_pipe(p.stdout)

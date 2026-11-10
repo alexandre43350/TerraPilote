@@ -3,13 +3,13 @@
 import os
 import subprocess
 
-from terrapilote import disks as dk
-from terrapilote import image as im
-from terrapilote import multicast as mc
-from terrapilote import ops, storage
-from terrapilote.errors import TerraPiloteError
+from clonix import disks as dk
+from clonix import image as im
+from clonix import multicast as mc
+from clonix import ops, storage
+from clonix.errors import ClonixError
 
-TITLE = "TerraPilote"
+TITLE = "Clonix"
 
 
 class Back(Exception):
@@ -65,14 +65,14 @@ def pick_disk(runner, text, image_dir, writable):
             continue
         items.append((d.path, f"{dk.human_size(d.size):>10}  {d.model or d.transport or ''}"[:60]))
     if not items:
-        raise TerraPiloteError("Aucun disque disponible")
+        raise ClonixError("Aucun disque disponible")
     return dk.get_disk(runner, menu(text, items))
 
 
 def pick_image(image_dir):
     images = im.list_images(image_dir)
     if not images:
-        raise TerraPiloteError(f"Aucune image dans {image_dir}. Montez d'abord un dépôt.")
+        raise ClonixError(f"Aucune image dans {image_dir}. Montez d'abord un dépôt.")
     items = [(n, f"{dk.human_size(s):>10}  {m['created'][:10]}  {m.get('description', '')}"[:60])
              for n, m, s in images]
     return menu("Choisissez une image :", items)
@@ -104,7 +104,7 @@ def do_storage(runner, image_dir):
                 if p.fstype and p.fstype != "swap":
                     parts.append((p.path, f"{dk.human_size(p.size):>10} {p.fstype} {p.label} ({d.model})"[:60]))
         if not parts:
-            raise TerraPiloteError("Aucune partition utilisable")
+            raise ClonixError("Aucune partition utilisable")
         storage.mount_local(runner, menu("Partition contenant les images :", parts), image_dir)
     elif kind == "smb":
         share = inputbox("Partage (ex. //192.168.1.10/images) :", "//")
@@ -151,7 +151,7 @@ def do_send(runner, image_dir):
     name = pick_image(image_dir)
     n = int(inputbox("Nombre de PC récepteurs :", "1"))
     wait = int(inputbox("Démarrer au plus tard après (secondes) :", "600"))
-    message("Démarrez maintenant les PC récepteurs sur la clé TerraPilote et choisissez\n"
+    message("Démarrez maintenant les PC récepteurs sur la clé Clonix et choisissez\n"
             "« Recevoir une image multicast ». La diffusion commencera dès que les\n"
             f"{n} récepteur(s) seront connectés.")
     os.system("clear")
@@ -197,7 +197,7 @@ def main(runner, image_dir):
         try:
             choice = menu(f"Dépôt d'images : {image_dir} ({mounted})", items)
         except Back:
-            if yesno("Quitter TerraPilote et ouvrir un terminal ?"):
+            if yesno("Quitter Clonix et ouvrir un terminal ?"):
                 return 0
             continue
         if choice == "s":
@@ -212,5 +212,5 @@ def main(runner, image_dir):
             action(runner, image_dir)
         except Back:
             continue
-        except (TerraPiloteError, ValueError) as exc:
+        except (ClonixError, ValueError) as exc:
             message(f"Erreur : {exc}")

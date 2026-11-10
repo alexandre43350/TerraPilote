@@ -1,0 +1,2 @@
+#!/bin/sh
+PYTHONPATH=/opt/clonix exec python3 -m clonix "$@"

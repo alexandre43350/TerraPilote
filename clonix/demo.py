@@ -1,15 +1,15 @@
 """Mode démonstration : disques simulés, aucune écriture réelle.
 
-``terrapilote web --demo`` permet d'essayer l'interface sur n'importe quel PC.
+``clonix web --demo`` permet d'essayer l'interface sur n'importe quel PC.
 """
 
 import json
 import tempfile
 import time
 
-from terrapilote import ops
-from terrapilote.runner import Reporter, Runner
-from terrapilote.web import App
+from clonix import ops
+from clonix.runner import Reporter, Runner
+from clonix.web import App
 
 GIB = 1024 ** 3
 MIB = 1024 ** 2
@@ -48,7 +48,7 @@ TREE = [
         (1 * GIB, "ntfs", "Recovery")]),
     _disk("sda", 1000 * GIB, "WDC WD10EZEX-08WN4A0", "sata", [(1000 * GIB - 2 * MIB, "ext4", "donnees")]),
     _disk("sdb", 500 * GIB, "Crucial MX500 500GB", "sata"),
-    _disk("sdc", 32 * GIB, "SanDisk Ultra Fit", "usb", [(32 * GIB, "iso9660", "TERRAPILOTE")],
+    _disk("sdc", 32 * GIB, "SanDisk Ultra Fit", "usb", [(32 * GIB, "iso9660", "CLONIX")],
           mount="/run/live/medium", rm=True),
 ]
 
@@ -121,7 +121,7 @@ class DemoRunner(Runner):
 
 class DemoApp(App):
     def __init__(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix="terrapilote-demo-")
+        self.tmp = tempfile.TemporaryDirectory(prefix="clonix-demo-")
         super().__init__(self.tmp.name, runner_factory=lambda rep: DemoRunner(rep), code="000000")
         seed = DemoRunner()
         seed.speed = 0

@@ -3,13 +3,13 @@
 import os
 import tempfile
 
-from terrapilote import image as im
-from terrapilote.errors import TerraPiloteError
+from clonix import image as im
+from clonix.errors import ClonixError
 
 
 def _prepare(runner, mountpoint):
     if os.path.ismount(mountpoint):
-        raise TerraPiloteError(f"{mountpoint} est déjà monté (terrapilote umount pour le libérer)")
+        raise ClonixError(f"{mountpoint} est déjà monté (clonix umount pour le libérer)")
     if not runner.dry_run:
         os.makedirs(mountpoint, exist_ok=True)
 
@@ -26,7 +26,7 @@ def mount_smb(runner, share, user=None, password=None, domain=None, mountpoint=i
     if user:
         # Fichier d'identifiants temporaire : le mot de passe n'apparaît pas
         # dans la liste des processus.
-        fd, cred = tempfile.mkstemp(prefix="tp-cred-", dir="/run" if os.path.isdir("/run") else None)
+        fd, cred = tempfile.mkstemp(prefix="clonix-cred-", dir="/run" if os.path.isdir("/run") else None)
         with os.fdopen(fd, "w") as f:
             f.write(f"username={user}\npassword={password or ''}\n")
             if domain:
@@ -54,5 +54,5 @@ def mount_sshfs(runner, remote, mountpoint=im.DEFAULT_DIR):
 
 def umount(runner, mountpoint=im.DEFAULT_DIR):
     if not os.path.ismount(mountpoint):
-        raise TerraPiloteError(f"{mountpoint} n'est pas monté")
+        raise ClonixError(f"{mountpoint} n'est pas monté")
     runner.run(["umount", mountpoint])

@@ -4,14 +4,14 @@ import os
 import tempfile
 import unittest
 
-from terrapilote import disks as dk
-from terrapilote import fsclone as fc
-from terrapilote import image as im
-from terrapilote import ops
-from terrapilote import partitions as pt
-from terrapilote.cli import Cancelled, ask_erase
-from terrapilote.errors import CommandError, TerraPiloteError
-from terrapilote.runner import Runner
+from clonix import disks as dk
+from clonix import fsclone as fc
+from clonix import image as im
+from clonix import ops
+from clonix import partitions as pt
+from clonix.cli import Cancelled, ask_erase
+from clonix.errors import CommandError, ClonixError
+from clonix.runner import Runner
 
 from tests.fakes import DOS_DUMP, GIB, GPT_DUMP, FakeRunner, default_tree, lsblk_disk
 
@@ -47,12 +47,12 @@ class DisksTest(unittest.TestCase):
     def test_live_usb_is_protected(self):
         r = FakeRunner(live_disk="/dev/sdu")
         self.assertIn("/dev/sdu", dk.protected_disks(r))
-        with self.assertRaisesRegex(TerraPiloteError, "clé USB"):
+        with self.assertRaisesRegex(ClonixError, "clé USB"):
             dk.check_writable_target(r, dk.get_disk(r, "/dev/sdu"))
 
     def test_mounted_target_refused(self):
         r = FakeRunner()
-        with self.assertRaisesRegex(TerraPiloteError, "utilisé"):
+        with self.assertRaisesRegex(ClonixError, "utilisé"):
             dk.check_writable_target(r, dk.get_disk(r, "/dev/sde"))
 
 
@@ -73,7 +73,7 @@ class PartitionsTest(unittest.TestCase):
         self.assertEqual(t.boot_regions(2048 * 512), [(0, 440), (512, 2048 * 512)])
 
     def test_unsupported_label(self):
-        with self.assertRaises(TerraPiloteError):
+        with self.assertRaises(ClonixError):
             pt.parse_dump("label: sun\n")
 
     def test_rewrite_for_nvme_target(self):
@@ -97,7 +97,7 @@ class PartitionsTest(unittest.TestCase):
     def test_write_table_checks_size(self):
         r = FakeRunner()
         small = dk.get_disk(r, "/dev/sdd")
-        with self.assertRaisesRegex(TerraPiloteError, "trop petit"):
+        with self.assertRaisesRegex(ClonixError, "trop petit"):
             pt.write_table(r, small, GPT_DUMP)
         self.assertFalse(r.commands("run")[1:])  # rien n'a été écrit après lsblk
 
@@ -141,7 +141,7 @@ class CaptureDeployTest(unittest.TestCase):
         r, path, m = self._capture()
         self.assertEqual(path, os.path.join(self.dir, "poste-type"))
         self.assertEqual(sorted(os.listdir(path)), sorted([
-            "terrapilote.json", "table.sfdisk", "boot.img",
+            "clonix.json", "table.sfdisk", "boot.img",
             "p1.partclone.zst", "p2.partclone.zst", "p3.dd.zst"]))
         modes = [(p["number"], p["mode"]) for p in m["partitions"]]
         self.assertEqual(modes, [(1, "partclone"), (2, "partclone"), (3, "dd"), (4, "swap")])
@@ -159,10 +159,10 @@ class CaptureDeployTest(unittest.TestCase):
 
     def test_capture_refuses_mounted_source_and_existing_name(self):
         r = FakeRunner(dumps={"/dev/sde": DOS_DUMP})
-        with self.assertRaisesRegex(TerraPiloteError, "montées"):
+        with self.assertRaisesRegex(ClonixError, "montées"):
             ops.capture(r, "/dev/sde", "x", self.dir)
         self._capture()
-        with self.assertRaisesRegex(TerraPiloteError, "existe déjà"):
+        with self.assertRaisesRegex(ClonixError, "existe déjà"):
             self._capture()
 
     def test_failed_capture_leaves_no_image(self):
@@ -199,7 +199,7 @@ class CaptureDeployTest(unittest.TestCase):
     def test_deploy_refuses_small_disk_before_writing(self):
         _, path, _ = self._capture()
         r = FakeRunner()
-        with self.assertRaisesRegex(TerraPiloteError, "trop petit"):
+        with self.assertRaisesRegex(ClonixError, "trop petit"):
             ops.deploy(r, im.DirSource(path), "/dev/sdd", self.dir, confirm=lambda m, d: self.fail())
         self.assertFalse([c for c in r.calls if c[0] in ("write", "pipe")])
 
@@ -221,13 +221,13 @@ class CaptureDeployTest(unittest.TestCase):
             f.write(b"!")
         _, bad = im.verify(path)
         self.assertEqual(bad, [("p2.partclone.zst", "somme SHA-256 différente")])
-        with self.assertRaisesRegex(TerraPiloteError, "corrompue"):
+        with self.assertRaisesRegex(ClonixError, "corrompue"):
             ops.deploy(FakeRunner(), im.DirSource(path), "/dev/sdc", self.dir)
 
     def test_deploy_missing_partclone_tool(self):
         _, path, _ = self._capture()
         r = FakeRunner(tools=["zstd"])
-        with self.assertRaisesRegex(TerraPiloteError, "partclone.extfs, partclone.fat"):
+        with self.assertRaisesRegex(ClonixError, "partclone.extfs, partclone.fat"):
             ops.deploy(r, im.DirSource(path), "/dev/sdc", self.dir)
         self.assertFalse([c for c in r.calls if c[0] in ("write", "pipe")])
 
@@ -247,7 +247,7 @@ class CaptureDeployTest(unittest.TestCase):
         manifest = dict(manifest, partitions=list(reversed(manifest["partitions"])))
         im.write_tar_stream(path, manifest, buf)
         buf.seek(0)
-        with self.assertRaisesRegex(TerraPiloteError, "Flux inattendu"):
+        with self.assertRaisesRegex(ClonixError, "Flux inattendu"):
             ops.deploy(FakeRunner(), im.TarStreamSource(buf), "/dev/sdc", None)
 
     def test_dry_run_writes_nothing(self):
@@ -284,7 +284,7 @@ class SpeedTest(unittest.TestCase):
         self.assertIn("--adapt=min=1,max=9", pipes[1][1])
 
     def test_progress_parsers(self):
-        from terrapilote.runner import parse_dd, parse_partclone
+        from clonix.runner import parse_dd, parse_partclone
         frac, rate, left = parse_partclone(
             "Elapsed: 00:00:10, Remaining: 00:01:05, Completed:  13.37%,   6.00GB/min,")
         self.assertAlmostEqual(frac, 0.1337)
@@ -325,7 +325,7 @@ class SpeedTest(unittest.TestCase):
         import threading
         r = Runner()
         threading.Timer(0.3, r.cancel).start()
-        from terrapilote.errors import Cancelled
+        from clonix.errors import Cancelled
         with self.assertRaises(Cancelled):
             r.pipeline([["sleep", "30"]])
 
@@ -345,9 +345,9 @@ class CloneTest(unittest.TestCase):
 
     def test_clone_same_disk_and_small_target(self):
         r = FakeRunner()
-        with self.assertRaisesRegex(TerraPiloteError, "identiques"):
+        with self.assertRaisesRegex(ClonixError, "identiques"):
             ops.clone(r, "/dev/sda", "/dev/sda")
-        with self.assertRaisesRegex(TerraPiloteError, "plus petit"):
+        with self.assertRaisesRegex(ClonixError, "plus petit"):
             ops.clone(r, "/dev/sda", "/dev/sdd")
 
 
@@ -372,14 +372,14 @@ class RunnerTest(unittest.TestCase):
             def read(self, n=-1):
                 buf = super().read(n)
                 if not buf:
-                    raise TerraPiloteError("somme")
+                    raise ClonixError("somme")
                 return buf
 
-        with self.assertRaisesRegex(TerraPiloteError, "somme"):
+        with self.assertRaisesRegex(ClonixError, "somme"):
             Runner().pipeline([["cat"]], feed=Bad(b"abc"), sink=io.BytesIO())
 
     def test_missing_tool(self):
-        with self.assertRaisesRegex(TerraPiloteError, "introuvable"):
+        with self.assertRaisesRegex(ClonixError, "introuvable"):
             Runner().run(["outil-qui-n-existe-pas"])
 
 

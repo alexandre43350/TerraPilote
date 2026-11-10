@@ -60,7 +60,7 @@ def partclone_flags(supports, tool, capture=False):
     if supports(tool, "--buffer_size"):
         flags += ["-z", str(PARTCLONE_BUFFER)]
     if capture and supports(tool, "--checksum-mode"):
-        flags += ["-a0"]  # pas de CRC par bloc : TerraPilote calcule déjà un SHA-256
+        flags += ["-a0"]  # pas de CRC par bloc : Clonix calcule déjà un SHA-256
     return flags
 
 

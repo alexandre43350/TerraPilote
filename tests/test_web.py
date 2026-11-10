@@ -6,7 +6,7 @@ import unittest
 import urllib.error
 import urllib.request
 
-from terrapilote import web
+from clonix import web
 
 from tests.fakes import FakeRunner
 
@@ -35,7 +35,7 @@ class WebTest(unittest.TestCase):
     def call(self, path, body=None, code="123456"):
         req = urllib.request.Request(self.base + path, method="GET" if body is None else "POST",
                                      data=None if body is None else json.dumps(body).encode(),
-                                     headers={"X-TP-Code": code, "Content-Type": "application/json"})
+                                     headers={"X-Clonix-Code": code, "Content-Type": "application/json"})
         try:
             with urllib.request.urlopen(req) as res:
                 return res.status, json.loads(res.read())
@@ -70,7 +70,7 @@ class WebTest(unittest.TestCase):
         status, s = self.call("/api/state")
         self.assertEqual(status, 200)
         disks = {d["path"]: d for d in s["disks"]}
-        self.assertEqual(disks["/dev/sdu"]["protected"], "la clé USB TerraPilote")
+        self.assertEqual(disks["/dev/sdu"]["protected"], "la clé USB Clonix")
         self.assertFalse(disks["/dev/sdu"]["writable"])
         self.assertFalse(disks["/dev/sde"]["writable"])
         self.assertTrue(disks["/dev/sdc"]["writable"])

@@ -1,13 +1,13 @@
 #!/bin/sh
 # Service de l'interface graphique.
-# Paramètre de démarrage « terrapilote.remote » : interface accessible depuis le réseau.
+# Paramètre de démarrage « clonix.remote » : interface accessible depuis le réseau.
 
 # Vitesse : les cœurs CPU à fréquence maximale (compression zstd multicœur).
 for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
     [ -w "$g" ] && echo performance > "$g" 2>/dev/null
 done
 
-if grep -qw terrapilote.remote /proc/cmdline; then
-    exec /usr/local/bin/terrapilote web --remote
+if grep -qw clonix.remote /proc/cmdline; then
+    exec /usr/local/bin/clonix web --remote
 fi
-exec /usr/local/bin/terrapilote web
+exec /usr/local/bin/clonix web

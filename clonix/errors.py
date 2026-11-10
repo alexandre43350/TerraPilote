@@ -1,12 +1,12 @@
-class TerraPiloteError(Exception):
+class ClonixError(Exception):
     """Erreur attendue, affichée à l'utilisateur sans trace Python."""
 
 
-class Cancelled(TerraPiloteError):
+class Cancelled(ClonixError):
     """Opération annulée par l'utilisateur."""
 
 
-class CommandError(TerraPiloteError):
+class CommandError(ClonixError):
     def __init__(self, argv, returncode, stderr=""):
         self.argv = list(argv)
         self.returncode = returncode

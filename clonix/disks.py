@@ -5,7 +5,7 @@ import os
 import re
 from dataclasses import dataclass, field
 
-from terrapilote.errors import TerraPiloteError
+from clonix.errors import ClonixError
 
 LSBLK_COLUMNS = "NAME,PATH,TYPE,SIZE,FSTYPE,LABEL,UUID,MOUNTPOINT,MODEL,SERIAL,TRAN,RM,RO,LOG-SEC,PKNAME"
 LIVE_MEDIUM = "/run/live/medium"
@@ -66,7 +66,7 @@ def part_path(disk_path, number):
 def part_number(path):
     m = re.search(r"(\d+)$", path)
     if not m:
-        raise TerraPiloteError(f"Numéro de partition introuvable dans {path}")
+        raise ClonixError(f"Numéro de partition introuvable dans {path}")
     return int(m.group(1))
 
 
@@ -132,7 +132,7 @@ def parse_lsblk(text, include_loop=False):
 
 
 def list_disks(runner):
-    include_loop = os.environ.get("TERRAPILOTE_ALLOW_LOOP") == "1"
+    include_loop = os.environ.get("CLONIX_ALLOW_LOOP") == "1"
     out = runner.run(["lsblk", "-J", "-b", "-o", LSBLK_COLUMNS], readonly=True)
     return parse_lsblk(out, include_loop=include_loop)
 
@@ -142,7 +142,7 @@ def get_disk(runner, path):
     for disk in list_disks(runner):
         if os.path.realpath(disk.path) == path:
             return disk
-    raise TerraPiloteError(f"{path} n'est pas un disque connu (voir `terrapilote disks`)")
+    raise ClonixError(f"{path} n'est pas un disque connu (voir `clonix disks`)")
 
 
 def disk_of_mount(runner, target):
@@ -166,11 +166,11 @@ def fstype_of_mount(runner, target):
 
 
 def protected_disks(runner, image_dir=None):
-    """Disques sur lesquels TerraPilote ne doit jamais écrire."""
+    """Disques sur lesquels Clonix ne doit jamais écrire."""
     protected = {}
     disk = disk_of_mount(runner, LIVE_MEDIUM)
     if disk:
-        protected[disk] = "la clé USB TerraPilote"
+        protected[disk] = "la clé USB Clonix"
     if image_dir and os.path.isdir(image_dir):
         disk = disk_of_mount(runner, image_dir)
         if disk:
@@ -180,19 +180,19 @@ def protected_disks(runner, image_dir=None):
 
 def check_writable_target(runner, disk, image_dir=None):
     if disk.readonly:
-        raise TerraPiloteError(f"{disk.path} est en lecture seule")
+        raise ClonixError(f"{disk.path} est en lecture seule")
     reason = protected_disks(runner, image_dir).get(disk.path)
     if reason:
-        raise TerraPiloteError(f"Refus : {disk.path} héberge {reason}")
+        raise ClonixError(f"Refus : {disk.path} héberge {reason}")
     if disk.mountpoints:
-        raise TerraPiloteError(
+        raise ClonixError(
             f"{disk.path} est utilisé ({', '.join(disk.mountpoints)}). Démontez-le d'abord."
         )
 
 
 def check_readable_source(disk):
     if disk.mountpoints:
-        raise TerraPiloteError(
+        raise ClonixError(
             f"{disk.path} a des partitions montées ({', '.join(disk.mountpoints)}). "
             "Démontez-les pour obtenir une copie cohérente."
         )

@@ -10,10 +10,10 @@ import os
 import subprocess
 import time
 
-from terrapilote import disks as dk
-from terrapilote import image as im
-from terrapilote import ops
-from terrapilote.errors import CommandError, TerraPiloteError
+from clonix import disks as dk
+from clonix import image as im
+from clonix import ops
+from clonix.errors import CommandError, ClonixError
 
 DEFAULT_PORTBASE = 9000
 
@@ -42,7 +42,7 @@ def send(runner, name, receivers, image_dir=None, **opts):
     path = im.resolve(name, image_dir)
     manifest, bad = im.verify(path)
     if bad:
-        raise TerraPiloteError("Image corrompue, envoi annulé : " + ", ".join(n for n, _ in bad))
+        raise ClonixError("Image corrompue, envoi annulé : " + ", ".join(n for n, _ in bad))
     cmd = sender_cmd(receivers, **opts)
     runner.log(
         f"Envoi multicast de « {manifest['name']} » : attente de {receivers} récepteur(s) "

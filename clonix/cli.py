@@ -1,16 +1,16 @@
-"""Interface en ligne de commande : ``terrapilote <commande>``."""
+"""Interface en ligne de commande : ``clonix <commande>``."""
 
 import argparse
 import os
 import sys
 
-from terrapilote import __version__
-from terrapilote import disks as dk
-from terrapilote import image as im
-from terrapilote import multicast as mc
-from terrapilote import ops, storage
-from terrapilote.errors import Cancelled, TerraPiloteError
-from terrapilote.runner import Runner
+from clonix import __version__
+from clonix import disks as dk
+from clonix import image as im
+from clonix import multicast as mc
+from clonix import ops, storage
+from clonix.errors import Cancelled, ClonixError
+from clonix.runner import Runner
 
 
 def ask_erase(disk, what, assume_yes=False, stream_in=None, stream_out=None):
@@ -113,7 +113,7 @@ def cmd_mount(runner, args):
         password = None
         if args.user:
             import getpass
-            password = os.environ.get("TERRAPILOTE_SMB_PASSWORD") or getpass.getpass("Mot de passe : ")
+            password = os.environ.get("CLONIX_SMB_PASSWORD") or getpass.getpass("Mot de passe : ")
         storage.mount_smb(runner, args.target, args.user, password, args.domain, args.dir)
     elif args.kind == "nfs":
         storage.mount_nfs(runner, args.target, args.dir)
@@ -129,9 +129,9 @@ def cmd_umount(runner, args):
 
 
 def cmd_web(runner, args):
-    from terrapilote import web
+    from clonix import web
     if args.demo:
-        from terrapilote.demo import DemoApp
+        from clonix.demo import DemoApp
         app = DemoApp()
     else:
         app = web.App(args.dir, dry_run=args.dry_run)
@@ -141,13 +141,13 @@ def cmd_web(runner, args):
 
 
 def cmd_menu(runner, args):
-    from terrapilote import tui
+    from clonix import tui
     return tui.main(runner, args.dir)
 
 
 def build_parser():
-    p = argparse.ArgumentParser(prog="terrapilote", description="Clonage et déploiement d'images disque.")
-    p.add_argument("--version", action="version", version=f"terrapilote {__version__}")
+    p = argparse.ArgumentParser(prog="clonix", description="Clonage et déploiement d'images disque.")
+    p.add_argument("--version", action="version", version=f"clonix {__version__}")
     p.add_argument("--dry-run", action="store_true", help="afficher les actions sans rien écrire")
     p.add_argument("-v", "--verbose", action="store_true", help="afficher chaque commande lancée")
     p.add_argument("--dir", default=im.DEFAULT_DIR, help=f"dépôt d'images (défaut : {im.DEFAULT_DIR})")
@@ -223,13 +223,13 @@ def main(argv=None):
     runner = Runner(dry_run=args.dry_run, verbose=args.verbose)
     if (hasattr(os, "geteuid") and os.geteuid() != 0 and not args.dry_run and args.func not in (cmd_images, cmd_verify)
             and not getattr(args, "demo", False)):
-        print("terrapilote doit être lancé en root (sudo).", file=sys.stderr)
+        print("clonix doit être lancé en root (sudo).", file=sys.stderr)
         return 2
     try:
         return args.func(runner, args)
     except KeyboardInterrupt:
         print("\nInterrompu.", file=sys.stderr)
         return 130
-    except TerraPiloteError as exc:
+    except ClonixError as exc:
         print(f"Erreur : {exc}", file=sys.stderr)
         return 1

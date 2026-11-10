@@ -5,11 +5,11 @@ import json
 import os
 import shutil
 
-from terrapilote import disks as dk
-from terrapilote import fsclone as fc
-from terrapilote import image as im
-from terrapilote import partitions as pt
-from terrapilote.errors import TerraPiloteError
+from clonix import disks as dk
+from clonix import fsclone as fc
+from clonix import image as im
+from clonix import partitions as pt
+from clonix.errors import ClonixError
 
 
 def _types_by_number(table_text):
@@ -50,14 +50,14 @@ def capture(runner, disk_path, name, image_dir=None, compression="zstd", level="
     dk.check_readable_source(disk)
     dest = im.resolve(name, image_dir)
     if os.path.exists(dest):
-        raise TerraPiloteError(f"L'image {dest} existe déjà")
+        raise ClonixError(f"L'image {dest} existe déjà")
     parent = os.path.dirname(dest)
     if os.path.isdir(parent) and dk.disk_of_mount(runner, parent) == disk.path:
-        raise TerraPiloteError("Le dépôt d'images est sur le disque à capturer")
+        raise ClonixError("Le dépôt d'images est sur le disque à capturer")
     level = fc.choose_level(level, dk.fstype_of_mount(runner, parent) if os.path.isdir(parent) else "")
     comp = fc.compress_cmd(compression, level)
     if comp and not runner.which(comp[0]):
-        raise TerraPiloteError(f"Compresseur introuvable : {compression}")
+        raise ClonixError(f"Compresseur introuvable : {compression}")
 
     table_text = pt.dump_table(runner, disk.path)
     table, plan = plan_partitions(runner, disk, table_text)
@@ -159,7 +159,7 @@ def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=N
         reader.read()  # déclenche la vérification
     table = pt.parse_dump(table_text)
     if table.required_bytes() > disk.size:
-        raise TerraPiloteError(
+        raise ClonixError(
             f"{disk.path} ({dk.human_size(disk.size)}) est trop petit pour l'image "
             f"« {manifest['name']} » ({dk.human_size(table.required_bytes())} requis)"
         )
@@ -171,7 +171,7 @@ def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=N
     missing = sorted({r["tool"] for r in manifest["partitions"] if r["mode"] == "partclone"
                       and not runner.which(r["tool"])})
     if missing:
-        raise TerraPiloteError(f"Outils introuvables : {', '.join(missing)}")
+        raise ClonixError(f"Outils introuvables : {', '.join(missing)}")
 
     if confirm:
         confirm(manifest, disk)
@@ -220,14 +220,14 @@ def clone(runner, src_path, dst_path, new_uuids=False, confirm=None):
     src = dk.get_disk(runner, src_path)
     dst = dk.get_disk(runner, dst_path)
     if os.path.realpath(src.path) == os.path.realpath(dst.path):
-        raise TerraPiloteError("Le disque source et le disque cible sont identiques")
+        raise ClonixError("Le disque source et le disque cible sont identiques")
     dk.check_readable_source(src)
     dk.check_writable_target(runner, dst)
 
     table_text = pt.dump_table(runner, src.path)
     table, plan = plan_partitions(runner, src, table_text)
     if table.required_bytes() > dst.size:
-        raise TerraPiloteError(
+        raise ClonixError(
             f"{dst.path} ({dk.human_size(dst.size)}) est plus petit que l'espace partitionné "
             f"de {src.path} ({dk.human_size(table.required_bytes())})"
         )

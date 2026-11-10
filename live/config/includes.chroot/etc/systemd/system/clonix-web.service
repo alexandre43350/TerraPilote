@@ -1,9 +1,9 @@
 [Unit]
-Description=TerraPilote - interface graphique
+Description=Clonix - interface graphique
 After=network.target
 
 [Service]
-ExecStart=/usr/local/bin/terrapilote-web
+ExecStart=/usr/local/bin/clonix-web
 Restart=on-failure
 Environment=PYTHONUNBUFFERED=1
 

@@ -1,2 +1,0 @@
-#!/bin/sh
-PYTHONPATH=/opt/terrapilote exec python3 -m terrapilote "$@"

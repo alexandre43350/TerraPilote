@@ -1,8 +1,8 @@
-"""Format d'image TerraPilote.
+"""Format d'image Clonix.
 
 Une image est un dossier :
 
-    terrapilote.json   manifeste (disque source, partitions, sommes SHA-256)
+    clonix.json   manifeste (disque source, partitions, sommes SHA-256)
     table.sfdisk       table de partitions (sfdisk --dump)
     boot.img           zone d'amorçage (avant la 1re partition)
     p1.partclone.zst   données de chaque partition, compressées
@@ -18,15 +18,15 @@ import json
 import os
 import tarfile
 
-from terrapilote import __version__
-from terrapilote.errors import TerraPiloteError
+from clonix import __version__
+from clonix.errors import ClonixError
 
-MANIFEST = "terrapilote.json"
+MANIFEST = "clonix.json"
 TABLE = "table.sfdisk"
 BOOT = "boot.img"
 FORMAT = 1
 STREAM_BUF = 4 * 1024 * 1024  # gros blocs : moins d'appels en Python
-DEFAULT_DIR = os.environ.get("TERRAPILOTE_IMAGES", "/srv/terrapilote/images")
+DEFAULT_DIR = os.environ.get("CLONIX_IMAGES", "/srv/clonix/images")
 
 
 def now_iso():
@@ -36,7 +36,7 @@ def now_iso():
 def new_manifest(name, disk, table, description=""):
     return {
         "format": FORMAT,
-        "tool": f"terrapilote {__version__}",
+        "tool": f"clonix {__version__}",
         "name": name,
         "description": description,
         "created": now_iso(),
@@ -69,9 +69,9 @@ def load_manifest(fileobj):
     try:
         data = json.load(fileobj)
     except ValueError as exc:
-        raise TerraPiloteError(f"Manifeste d'image illisible : {exc}") from None
+        raise ClonixError(f"Manifeste d'image illisible : {exc}") from None
     if data.get("format") != FORMAT:
-        raise TerraPiloteError(f"Format d'image non pris en charge : {data.get('format')}")
+        raise ClonixError(f"Format d'image non pris en charge : {data.get('format')}")
     return data
 
 
@@ -85,7 +85,7 @@ def list_images(image_dir):
             try:
                 with open(path, "rb") as f:
                     m = load_manifest(f)
-            except TerraPiloteError:
+            except ClonixError:
                 continue
             size = sum(f.get("size", 0) for f in m["files"].values())
             images.append((entry, m, size))
@@ -117,7 +117,7 @@ class VerifyingReader(HashingReader):
         buf = super().read(n)
         if not buf and self.expected:
             if self.hash.hexdigest() != self.expected.get("sha256") or self.size != self.expected.get("size"):
-                raise TerraPiloteError(f"Image corrompue : {self.name} ne correspond pas à sa somme SHA-256")
+                raise ClonixError(f"Image corrompue : {self.name} ne correspond pas à sa somme SHA-256")
         return buf
 
 
@@ -141,7 +141,7 @@ class DirSource:
 
     def __init__(self, path):
         if not os.path.isfile(os.path.join(path, MANIFEST)):
-            raise TerraPiloteError(f"Aucune image TerraPilote dans {path}")
+            raise ClonixError(f"Aucune image Clonix dans {path}")
         self.path = path
 
     def open(self, name):
@@ -161,9 +161,9 @@ class TarStreamSource:
     def open(self, name):
         member = next(self.members, None)
         if member is None:
-            raise TerraPiloteError(f"Flux interrompu : {name} attendu")
+            raise ClonixError(f"Flux interrompu : {name} attendu")
         if member.name != name or not member.isfile():
-            raise TerraPiloteError(f"Flux inattendu : {member.name} reçu, {name} attendu")
+            raise ClonixError(f"Flux inattendu : {member.name} reçu, {name} attendu")
         return self.tar.extractfile(member)
 
     def close(self):

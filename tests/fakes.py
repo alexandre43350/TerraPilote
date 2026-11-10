@@ -3,7 +3,7 @@
 import io
 import json
 
-from terrapilote.runner import Runner
+from clonix.runner import Runner
 
 GPT_DUMP = """label: gpt
 label-id: 11111111-2222-3333-4444-555555555555

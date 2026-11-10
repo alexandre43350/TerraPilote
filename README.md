@@ -1,4 +1,4 @@
-# TerraPilote
+# Clonix
 
 Logiciel de **clonage de PC** sur clé USB bootable : capture d'un disque en image,
 déploiement d'une image sur un ou plusieurs postes, clonage direct disque à disque
@@ -37,7 +37,7 @@ Tables MBR et GPT, démarrage BIOS et UEFI.
   l'écriture se recouvrent avec la lecture), blocs de 8 à 16 Mio. Mesuré à
   environ 1,2 Go/s en capture (SHA-256 compris) et 2,5 Go/s en restauration sur
   4 cœurs : ce n'est pas le goulot.
-- **partclone** avec un tampon de 16 Mio et sans CRC par bloc (TerraPilote calcule
+- **partclone** avec un tampon de 16 Mio et sans CRC par bloc (Clonix calcule
   déjà un SHA-256), uniquement si la version installée connaît ces options.
 - **Clone brut** via deux `dd` reliés par un tube : la lecture et l'écriture se
   font en même temps au lieu de s'alterner.
@@ -51,7 +51,7 @@ mode kiosque). Si l'affichage graphique échoue, un menu texte prend le relais.
 
 Sécurité intégrée :
 
-- la clé TerraPilote et le disque du dépôt d'images ne peuvent jamais être choisis
+- la clé Clonix et le disque du dépôt d'images ne peuvent jamais être choisis
   comme cible ;
 - un disque monté est refusé ;
 - avant tout effacement, il faut **taper le nom du disque** (ex. `sda`) ;
@@ -60,20 +60,20 @@ Sécurité intégrée :
 Pour essayer l'interface sur n'importe quel ordinateur, sans toucher aux disques :
 
 ```bash
-python3 -m terrapilote web --demo
+python3 -m clonix web --demo
 ```
 
-(sous Windows : `py -m terrapilote web --demo`), puis ouvrir <http://127.0.0.1:8470/>.
+(sous Windows : `py -m clonix web --demo`), puis ouvrir <http://127.0.0.1:8470/>.
 
 ### Accès depuis un autre PC
 
-Ajoutez `terrapilote.remote` aux paramètres de démarrage de la clé (touche `e` ou
+Ajoutez `clonix.remote` aux paramètres de démarrage de la clé (touche `e` ou
 `Tab` dans le menu de démarrage). L'adresse et un **code d'accès à 6 chiffres**
 s'affichent en haut de l'écran du poste ; ouvrez `http://ADRESSE:8470/` depuis un
 autre PC, une tablette ou un téléphone, puis saisissez le code. Pratique pour
 lancer une diffusion multicast depuis votre bureau.
 
-Paramètre `terrapilote.text` : démarrer directement sur le menu texte.
+Paramètre `clonix.text` : démarrer directement sur le menu texte.
 
 ## Créer la clé USB
 
@@ -86,11 +86,11 @@ passe par l'émulation x86 et prend plus longtemps (30 à 60 min).
 ./live/build.sh
 ```
 
-L'image `live/out/terrapilote-AAAAMMJJ.iso` (hybride BIOS + UEFI) se copie sur une
+L'image `live/out/clonix-AAAAMMJJ.iso` (hybride BIOS + UEFI) se copie sur une
 clé avec Balena Etcher, Rufus (mode DD) ou :
 
 ```bash
-sudo dd if=live/out/terrapilote-AAAAMMJJ.iso of=/dev/sdX bs=4M conv=fsync status=progress
+sudo dd if=live/out/clonix-AAAAMMJJ.iso of=/dev/sdX bs=4M conv=fsync status=progress
 ```
 
 Sur Mac, le plus simple est [balenaEtcher](https://etcher.balena.io/) ; ou en
@@ -99,7 +99,7 @@ ligne de commande (remplacez `diskN` par le numéro de la clé donné par
 
 ```bash
 diskutil unmountDisk /dev/diskN
-sudo dd if=live/out/terrapilote-AAAAMMJJ.iso of=/dev/rdiskN bs=4m
+sudo dd if=live/out/clonix-AAAAMMJJ.iso of=/dev/rdiskN bs=4m
 ```
 
 La clé est basée sur Debian 12 (bookworm) et contient partclone, zstd, udpcast,
@@ -117,7 +117,7 @@ courants.
    powershell -ExecutionPolicy Bypass -File live\build.ps1
    ```
 
-3. Écrivez `live\out\terrapilote-AAAAMMJJ.iso` sur la clé avec
+3. Écrivez `live\out\clonix-AAAAMMJJ.iso` sur la clé avec
    [Rufus](https://rufus.ie/) : choisissez la clé, l'ISO, puis **« Écrire en mode
    Image DD »** quand Rufus le demande (le mode ISO ne fonctionnera pas), ou avec
    [balenaEtcher](https://etcher.balena.io/).
@@ -127,7 +127,7 @@ dépôt est cloné avec Git pour Windows.
 
 ## Dépôt d'images
 
-Les images sont lues et écrites dans `/srv/terrapilote/images`, où l'on monte au
+Les images sont lues et écrites dans `/srv/clonix/images`, où l'on monte au
 choix : un disque externe, un partage Windows/NAS (SMB), un export NFS ou un
 serveur SSH. Depuis l'interface : **Dépôt d'images → Configurer**.
 
@@ -135,7 +135,7 @@ Format d'une image (un dossier) :
 
 ```
 poste-type/
-├── terrapilote.json    manifeste : disque source, partitions, sommes SHA-256
+├── clonix.json    manifeste : disque source, partitions, sommes SHA-256
 ├── table.sfdisk        table de partitions
 ├── boot.img            zone d'amorçage (avant la 1re partition)
 ├── p1.partclone.zst    une archive par partition
@@ -147,15 +147,15 @@ poste-type/
 Tout ce que fait l'interface est disponible en ligne de commande (en root) :
 
 ```bash
-terrapilote disks
-terrapilote mount smb //192.168.1.10/images --user admin
-terrapilote capture /dev/nvme0n1 poste-type --description "Windows 11 + Office"
-terrapilote deploy poste-type /dev/sda
-terrapilote clone /dev/sda /dev/sdb
-terrapilote mcast-send poste-type --receivers 12
-terrapilote mcast-recv /dev/sda
-terrapilote verify poste-type
-terrapilote --dry-run deploy poste-type /dev/sda   # affiche les actions sans rien écrire
+clonix disks
+clonix mount smb //192.168.1.10/images --user admin
+clonix capture /dev/nvme0n1 poste-type --description "Windows 11 + Office"
+clonix deploy poste-type /dev/sda
+clonix clone /dev/sda /dev/sdb
+clonix mcast-send poste-type --receivers 12
+clonix mcast-recv /dev/sda
+clonix verify poste-type
+clonix --dry-run deploy poste-type /dev/sda   # affiche les actions sans rien écrire
 ```
 
 ## Bonnes pratiques Windows
@@ -187,7 +187,7 @@ python3 -m unittest
 Structure :
 
 ```
-terrapilote/      code (CLI, opérations, multicast, serveur web, interface)
+clonix/      code (CLI, opérations, multicast, serveur web, interface)
   static/         interface graphique (HTML/CSS/JS, sans dépendance externe)
 tests/            tests unitaires et API avec outils disque simulés
 live/             configuration de la clé USB (Debian live-build)

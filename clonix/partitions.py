@@ -3,8 +3,8 @@
 import re
 from dataclasses import dataclass
 
-from terrapilote.disks import part_number, part_path
-from terrapilote.errors import TerraPiloteError
+from clonix.disks import part_number, part_path
+from clonix.errors import ClonixError
 
 GPT_BACKUP_SECTORS = 33  # en-tête + entrées GPT de secours en fin de disque
 MAX_BOOT_AREA = 16 * 1024 * 1024
@@ -96,7 +96,7 @@ def parse_dump(text):
             header[key.strip()] = value.strip()
     label = header.get("label")
     if label not in ("gpt", "dos"):
-        raise TerraPiloteError(f"Table de partitions non prise en charge : {label or 'aucune'}")
+        raise ClonixError(f"Table de partitions non prise en charge : {label or 'aucune'}")
     entries.sort(key=lambda e: e.number)
     return Table(
         label=label,
@@ -144,12 +144,12 @@ def dump_table(runner, disk_path):
 def write_table(runner, disk, dump_text, new_uuids=False):
     table = parse_dump(dump_text)
     if table.sector_size != disk.sector_size:
-        raise TerraPiloteError(
+        raise ClonixError(
             f"Taille de secteur incompatible : image {table.sector_size} o, "
             f"{disk.path} {disk.sector_size} o"
         )
     if table.required_bytes() > disk.size:
-        raise TerraPiloteError(
+        raise ClonixError(
             f"{disk.path} est trop petit : {table.required_bytes()} octets requis, {disk.size} disponibles"
         )
     script = rewrite_dump(dump_text, disk.path, new_uuids=new_uuids)

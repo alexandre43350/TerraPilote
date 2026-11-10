@@ -1,8 +1,8 @@
-# Construit la cle USB TerraPilote depuis Windows (PowerShell + Docker Desktop).
+# Construit la cle USB Clonix depuis Windows (PowerShell + Docker Desktop).
 #
 #   powershell -ExecutionPolicy Bypass -File live\build.ps1
 #
-# Resultat : live\out\terrapilote-AAAAMMJJ.iso
+# Resultat : live\out\clonix-AAAAMMJJ.iso
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 
@@ -12,6 +12,6 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-docker run --rm --privileged --platform linux/amd64 -e TP_IN_CONTAINER=1 `
+docker run --rm --privileged --platform linux/amd64 -e CLONIX_IN_CONTAINER=1 `
     -v "${Root}:/src" debian:bookworm sh /src/live/build.sh
 exit $LASTEXITCODE

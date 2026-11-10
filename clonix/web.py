@@ -16,13 +16,13 @@ import traceback
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from terrapilote import __version__
-from terrapilote import disks as dk
-from terrapilote import image as im
-from terrapilote import multicast as mc
-from terrapilote import ops, storage
-from terrapilote.errors import Cancelled, TerraPiloteError
-from terrapilote.runner import Runner
+from clonix import __version__
+from clonix import disks as dk
+from clonix import image as im
+from clonix import multicast as mc
+from clonix import ops, storage
+from clonix.errors import Cancelled, ClonixError
+from clonix.runner import Runner
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
 DEFAULT_PORT = 8470
@@ -144,7 +144,7 @@ class App:
             except Cancelled:
                 job.state = "cancelled"
                 job.log("Opération annulée.")
-            except TerraPiloteError as exc:
+            except ClonixError as exc:
                 job.state = "error"
                 job.error = str(exc)
                 job.log(f"Erreur : {exc}")
@@ -218,7 +218,7 @@ class App:
                 r.log(f"Vérification de « {image} »…")
                 manifest, bad = im.verify(im.resolve(image, d))
                 if bad:
-                    raise TerraPiloteError("Image corrompue : " + ", ".join(f"{n} ({why})" for n, why in bad))
+                    raise ClonixError("Image corrompue : " + ", ".join(f"{n} ({why})" for n, why in bad))
                 r.log(f"Image intacte : {len(manifest['files'])} fichiers vérifiés.")
             return self.start("verify", f"Vérification de « {image} »", verify)
         if name == "storage":
@@ -276,7 +276,7 @@ def _free_space(path):
 class Handler(BaseHTTPRequestHandler):
     app = None  # défini par serve()
     failures = collections.Counter()
-    server_version = f"TerraPilote/{__version__}"
+    server_version = f"Clonix/{__version__}"
 
     def log_message(self, fmt, *args):  # silencieux
         pass
@@ -299,7 +299,7 @@ class Handler(BaseHTTPRequestHandler):
         ip = self.client_address[0]
         if self.failures[ip] >= 20:
             return False
-        if secrets.compare_digest(self.headers.get("X-TP-Code", ""), self.app.code):
+        if secrets.compare_digest(self.headers.get("X-Clonix-Code", ""), self.app.code):
             return True
         self.failures[ip] += 1
         time.sleep(1)
@@ -321,7 +321,7 @@ class Handler(BaseHTTPRequestHandler):
             data = f.read()
         if name == "index.html":
             # Le code d'accès n'est donné qu'à l'écran local.
-            data = data.replace(b"__TP_CODE__", self.app.code.encode() if self._local() else b"")
+            data = data.replace(b"__CLONIX_CODE__", self.app.code.encode() if self._local() else b"")
         self._send(HTTPStatus.OK, data, MIME.get(os.path.splitext(full)[1], "application/octet-stream"))
 
     def do_POST(self):
@@ -347,7 +347,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(exc.status, {"error": str(exc)})
         except KeyError as exc:
             return self._send(HTTPStatus.BAD_REQUEST, {"error": f"Champ manquant : {exc.args[0]}"})
-        except (TerraPiloteError, ValueError) as exc:
+        except (ClonixError, ValueError) as exc:
             return self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
 
 
@@ -361,7 +361,7 @@ def serve(app, host="127.0.0.1", port=DEFAULT_PORT):
     remote = host in ("0.0.0.0", "::")
     if remote:
         app.remote_port = port
-    print(f"TerraPilote : interface sur http://127.0.0.1:{port}/"
+    print(f"Clonix : interface sur http://127.0.0.1:{port}/"
           + (f" et sur le réseau (code d'accès : {app.code})" if remote else ""), flush=True)
     try:
         httpd.serve_forever()

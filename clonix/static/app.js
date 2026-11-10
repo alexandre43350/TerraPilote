@@ -73,13 +73,13 @@ const today = () => new Date().toISOString().slice(0, 10);
 document.querySelectorAll("i[data-icon]").forEach((el) => (el.innerHTML = ICONS[el.dataset.icon] || ""));
 
 /* --------------------------------------------------------------------- API */
-let code = document.querySelector('meta[name="tp-code"]').content;
-if (!code || code === "__TP_CODE__") code = sessionStorage.getItem("tp-code") || "";
+let code = document.querySelector('meta[name="clonix-code"]').content;
+if (!code || code === "__CLONIX_CODE__") code = sessionStorage.getItem("clonix-code") || "";
 
 async function api(path, body) {
   const res = await fetch("/api/" + path, {
     method: body === undefined ? "GET" : "POST",
-    headers: { "Content-Type": "application/json", "X-TP-Code": code },
+    headers: { "Content-Type": "application/json", "X-Clonix-Code": code },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
@@ -423,7 +423,7 @@ function wizardSend(step = 0, sel = {}) {
       h("div", { class: "field" }, h("label", {}, "Nombre de PC récepteurs"),
         h("div", { class: "stepper" }, h("button", { onclick: () => bump(-1) }, "−"), n, h("button", { onclick: () => bump(1) }, "+"))),
       h("div", { class: "field" }, h("label", {}, "Démarrer au plus tard après"), wait)),
-    h("p", { class: "note" }, "Démarrez les PC à équiper sur leur clé TerraPilote et choisissez « Recevoir ». La diffusion commence dès que tous sont connectés : une seule transmission pour tous les postes."),
+    h("p", { class: "note" }, "Démarrez les PC à équiper sur leur clé Clonix et choisissez « Recevoir ». La diffusion commence dès que tous sont connectés : une seule transmission pour tous les postes."),
     wizFoot({ fn: () => wizardSend(0, sel) }, { label: "Lancer la diffusion", fn: () => launch("mcast-send", { image: sel.image, receivers: parseInt(n.value, 10) || 1, max_wait: parseInt(wait.value, 10) }) }));
 }
 
@@ -590,7 +590,7 @@ function showLogin() { $("#login").hidden = false; $("#login-code").focus(); }
 $("#login-form").onsubmit = async (e) => {
   e.preventDefault();
   code = $("#login-code").value.trim();
-  sessionStorage.setItem("tp-code", code);
+  sessionStorage.setItem("clonix-code", code);
   try { S = await api("state"); $("#login").hidden = true; render(); }
   catch (err) { $("#login-error").textContent = "Code incorrect"; }
 };
