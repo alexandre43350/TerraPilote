@@ -27,6 +27,7 @@ openssh-client
 python3
 whiptail
 systemd-resolved
+sudo
 iproute2
 ca-certificates
 locales
@@ -42,7 +43,6 @@ wget
 
 # --- Interface graphique (navigateur plein écran dans le compositeur « cage »)
 cage
-seatd
 firefox-esr
 xwayland
 firefox-esr-l10n-fr

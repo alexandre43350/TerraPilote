@@ -4,17 +4,21 @@ set -e
 chmod 755 /usr/local/bin/clonix /usr/local/bin/clonix-web /usr/local/bin/clonix-kiosk
 systemctl enable clonix-web.service systemd-networkd.service systemd-resolved.service
 
-# cage (l'affichage plein écran) refuse de tourner en root. On crée un compte
-# sans privilèges « kiosk » qui ne fait qu'afficher le navigateur ; seatd lui
-# donne accès à l'écran, au clavier et à la souris. Le travail sur les disques
-# reste fait en root par clonix-web.service.
+# L'affichage plein écran (cage) refuse de tourner en root. La clé se connecte
+# donc automatiquement sous un compte sans privilèges « kiosk », qui lance le
+# navigateur. systemd-logind lui donne accès à l'écran et au clavier. Le travail
+# sur les disques est fait en root : par clonix-web.service pour l'interface
+# graphique, et via sudo pour le menu texte de secours.
 if ! id kiosk >/dev/null 2>&1; then
-    useradd --create-home --shell /usr/sbin/nologin kiosk
+    useradd --home-dir /home/kiosk --shell /bin/bash kiosk
 fi
 for grp in video render input; do
     getent group "$grp" >/dev/null && usermod -aG "$grp" kiosk
 done
-getent group _seatd >/dev/null && usermod -aG _seatd kiosk
-systemctl enable seatd.service
+passwd -l kiosk >/dev/null 2>&1 || true
+install -d -m 755 /etc/sudoers.d
+echo 'kiosk ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/clonix
+chmod 440 /etc/sudoers.d/clonix
+chown -R kiosk:kiosk /home/kiosk
 mkdir -p /srv/clonix/images
 echo clonix > /etc/hostname

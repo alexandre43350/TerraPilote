@@ -1,4 +1,5 @@
-# Au démarrage de la clé (tty1) : interface graphique, sinon menu texte.
+# Connexion automatique du compte « kiosk » sur tty1 : interface graphique,
+# sinon menu texte (en root via sudo).
 # Paramètre de démarrage « clonix.text » : menu texte directement.
 [ -f ~/.bashrc ] && . ~/.bashrc
 if [ "$(tty)" = /dev/tty1 ] && [ -z "${CLONIX_STARTED:-}" ]; then
@@ -8,5 +9,5 @@ if [ "$(tty)" = /dev/tty1 ] && [ -z "${CLONIX_STARTED:-}" ]; then
         echo "Affichage graphique indisponible : passage au menu texte."
         sleep 2
     fi
-    clonix menu
+    sudo clonix menu
 fi
