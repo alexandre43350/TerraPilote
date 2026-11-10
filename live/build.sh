@@ -3,6 +3,9 @@
 #
 #   ./live/build.sh            (nécessite Docker, accès Internet, ~4 Go libres)
 #
+# Fonctionne sous Linux, macOS (Docker Desktop, y compris puces Apple M1/M2/M3/M4)
+# et Windows (WSL2). La clé produite est toujours pour PC x86-64 (amd64).
+#
 # Résultat : live/out/terrapilote-AAAAMMJJ.iso, à copier sur une clé avec
 # Balena Etcher, Rufus (mode DD) ou :  dd if=terrapilote.iso of=/dev/sdX bs=4M
 set -eu
@@ -11,7 +14,8 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(dirname "$HERE")
 
 if [ "${TP_IN_CONTAINER:-0}" != 1 ]; then
-    exec docker run --rm --privileged -e TP_IN_CONTAINER=1 \
+    # --platform : sur Mac Apple Silicon, Docker construirait sinon pour ARM.
+    exec docker run --rm --privileged --platform linux/amd64 -e TP_IN_CONTAINER=1 \
         -v "$ROOT":/src debian:bookworm /src/live/build.sh
 fi
 
@@ -23,6 +27,7 @@ rm -rf "$WORK" && mkdir -p "$WORK" && cd "$WORK"
 
 lb config \
     --distribution bookworm \
+    --architecture amd64 \
     --archive-areas "main contrib non-free non-free-firmware" \
     --binary-images iso-hybrid \
     --debian-installer none \

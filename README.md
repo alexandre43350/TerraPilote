@@ -77,7 +77,10 @@ Paramètre `terrapilote.text` : démarrer directement sur le menu texte.
 
 ## Créer la clé USB
 
-Prérequis : Docker et un accès Internet (environ 4 Go d'espace libre).
+Prérequis : Docker et un accès Internet (environ 4 Go d'espace libre). Sur Mac,
+installez [Docker Desktop](https://www.docker.com/products/docker-desktop/) et
+lancez-le avant la commande ; sur Mac à puce Apple (M1 à M4), la construction
+passe par l'émulation x86 et prend plus longtemps (30 à 60 min).
 
 ```bash
 ./live/build.sh
@@ -88,6 +91,15 @@ clé avec Balena Etcher, Rufus (mode DD) ou :
 
 ```bash
 sudo dd if=live/out/terrapilote-AAAAMMJJ.iso of=/dev/sdX bs=4M conv=fsync status=progress
+```
+
+Sur Mac, le plus simple est [balenaEtcher](https://etcher.balena.io/) ; ou en
+ligne de commande (remplacez `diskN` par le numéro de la clé donné par
+`diskutil list`) :
+
+```bash
+diskutil unmountDisk /dev/diskN
+sudo dd if=live/out/terrapilote-AAAAMMJJ.iso of=/dev/rdiskN bs=4m
 ```
 
 La clé est basée sur Debian 12 (bookworm) et contient partclone, zstd, udpcast,
