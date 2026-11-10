@@ -42,6 +42,7 @@ wget
 
 # --- Interface graphique (navigateur plein écran dans le compositeur « cage »)
 cage
+seatd
 firefox-esr
 firefox-esr-l10n-fr
 libgl1-mesa-dri
