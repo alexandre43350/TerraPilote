@@ -81,6 +81,7 @@ class _JobReporter:
 class App:
     def __init__(self, image_dir=im.DEFAULT_DIR, runner_factory=None, code=None, dry_run=False):
         self.image_dir = image_dir
+        self.remote_port = None  # défini par serve() si l'accès réseau est ouvert
         self.dry_run = dry_run
         self.runner_factory = runner_factory or (lambda reporter: Runner(dry_run=dry_run, reporter=reporter))
         self.code = code or f"{secrets.randbelow(10 ** 6):06d}"
@@ -120,6 +121,8 @@ class App:
             "disks": disks,
             "images": images,
             "interface": mc.default_interface(),
+            "remote": ({"port": self.remote_port, "code": self.code, "addresses": _addresses(r)}
+                       if self.remote_port else None),
             "job": self.job.as_dict() if self.job else None,
         }
 
@@ -257,6 +260,11 @@ def _mount_source(runner, path):
     return out.strip().splitlines()[0] if out.strip() else ""
 
 
+def _addresses(runner):
+    out = runner.run(["ip", "-4", "-o", "addr", "show", "scope", "global"], readonly=True, check=False)
+    return [line.split()[3].split("/")[0] for line in out.splitlines() if len(line.split()) > 3]
+
+
 def _free_space(path):
     try:
         st = os.statvfs(path)
@@ -351,6 +359,8 @@ def make_server(app, host="127.0.0.1", port=DEFAULT_PORT):
 def serve(app, host="127.0.0.1", port=DEFAULT_PORT):
     httpd = make_server(app, host, port)
     remote = host in ("0.0.0.0", "::")
+    if remote:
+        app.remote_port = port
     print(f"TerraPilote : interface sur http://127.0.0.1:{port}/"
           + (f" et sur le réseau (code d'accès : {app.code})" if remote else ""), flush=True)
     try:

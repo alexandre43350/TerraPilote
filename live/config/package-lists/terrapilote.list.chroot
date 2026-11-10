@@ -1,0 +1,56 @@
+# --- Clonage
+partclone
+zstd
+pigz
+udpcast
+fdisk
+gdisk
+parted
+dosfstools
+ntfs-3g
+exfatprogs
+e2fsprogs
+btrfs-progs
+xfsprogs
+f2fs-tools
+lvm2
+
+# --- Dépôts d'images réseau
+cifs-utils
+nfs-common
+sshfs
+openssh-client
+
+# --- Système
+python3
+whiptail
+systemd-resolved
+iproute2
+ca-certificates
+locales
+console-setup
+keyboard-configuration
+pciutils
+usbutils
+nvme-cli
+smartmontools
+less
+nano
+wget
+
+# --- Interface graphique (navigateur plein écran dans le compositeur « cage »)
+cage
+firefox-esr
+firefox-esr-l10n-fr
+libgl1-mesa-dri
+libegl1
+libgles2
+fonts-inter
+fonts-dejavu-core
+
+# --- Pilotes réseau / matériel courants
+firmware-linux-free
+firmware-misc-nonfree
+firmware-realtek
+firmware-bnx2
+firmware-bnx2x

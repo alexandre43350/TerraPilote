@@ -142,6 +142,12 @@ function render() {
     st.mounted ? `Dépôt : ${st.source || st.dir} · ${size(st.free)} libres` : "Dépôt d'images non monté",
   );
   $("#chip-net").textContent = S.interface ? `Réseau : ${S.interface}` : "Réseau : aucun";
+  const rem = $("#chip-remote");
+  rem.hidden = !S.remote;
+  if (S.remote) {
+    const addr = (S.remote.addresses || [])[0];
+    rem.textContent = `Accès distant : ${addr ? addr + ":" + S.remote.port : "port " + S.remote.port} · code ${S.remote.code}`;
+  }
 
   $("#disk-count").textContent = `${S.disks.length} détecté(s)`;
   $("#disks").replaceChildren(...S.disks.map((d) => diskCard(d)));

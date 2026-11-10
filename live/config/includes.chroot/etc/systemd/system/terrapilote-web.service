@@ -1,0 +1,11 @@
+[Unit]
+Description=TerraPilote - interface graphique
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/terrapilote-web
+Restart=on-failure
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

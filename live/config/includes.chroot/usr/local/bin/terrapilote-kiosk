@@ -1,0 +1,10 @@
+#!/bin/sh
+# Affiche l'interface en plein écran. Code de sortie non nul = pas d'affichage
+# graphique possible (le menu texte prend le relais).
+URL=http://127.0.0.1:8470/
+i=0
+until wget -q -O /dev/null "$URL" 2>/dev/null || [ $i -ge 30 ]; do
+    i=$((i + 1)); sleep 0.5
+done
+export MOZ_ENABLE_WAYLAND=1
+exec cage -s -- firefox-esr --kiosk --private-window "$URL"
