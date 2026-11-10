@@ -9,95 +9,133 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header class="topbar">
-  <div class="brand">
-    <img src="logo.svg" alt="" width="34" height="34">
-    <div>
-      <strong>TerraPilote</strong>
-      <span id="version" class="muted"></span>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <img src="logo.svg" alt="" width="38" height="38">
+      <div>
+        <strong>TerraPilote</strong>
+        <span id="version"></span>
+      </div>
     </div>
-  </div>
-  <div class="chips">
-    <button id="chip-storage" class="chip" title="Dépôt d'images"></button>
-    <span id="chip-net" class="chip static"></span>
-    <span id="chip-remote" class="chip static" hidden></span>
-    <span id="chip-demo" class="chip warn static" hidden>Mode démo</span>
-  </div>
-  <div class="power">
-    <button class="icon-btn" id="btn-power" title="Alimentation" aria-label="Alimentation">
-      <svg viewBox="0 0 24 24"><path d="M12 3v9M6.3 6.3a8 8 0 1 0 11.4 0"/></svg>
-    </button>
-    <div class="menu" id="power-menu" hidden>
-      <button data-power="reboot">Redémarrer</button>
-      <button data-power="poweroff">Éteindre</button>
-    </div>
-  </div>
-</header>
 
-<main id="home">
-  <section class="actions" id="actions"></section>
-  <div class="columns">
-    <section class="panel">
-      <div class="panel-head"><h2>Disques</h2><span class="muted" id="disk-count"></span></div>
-      <div id="disks" class="disk-list"></div>
-    </section>
-    <section class="panel">
-      <div class="panel-head"><h2>Images</h2><span class="muted" id="image-count"></span></div>
-      <div id="images" class="image-list"></div>
-    </section>
-  </div>
-</main>
+    <nav class="nav">
+      <a href="#top" class="on" data-nav="top"><i data-icon="home"></i>Tableau de bord</a>
+      <a href="#sec-disks" data-nav="sec-disks"><i data-icon="disk"></i>Disques</a>
+      <a href="#sec-images" data-nav="sec-images"><i data-icon="image"></i>Images</a>
+    </nav>
+
+    <div class="side-card" id="side-storage"></div>
+
+    <div class="side-foot">
+      <div class="net" id="side-net"></div>
+      <div class="power-row">
+        <button class="ghost-btn" data-power="reboot"><i data-icon="reboot"></i>Redémarrer</button>
+        <button class="ghost-btn" data-power="poweroff"><i data-icon="power"></i>Éteindre</button>
+      </div>
+    </div>
+  </aside>
+
+  <main id="top">
+    <header class="hero">
+      <div>
+        <p class="eyebrow" id="clock"></p>
+        <h1>Clonage &amp; déploiement</h1>
+        <p class="lead">Capturez, restaurez et diffusez des systèmes complets, à la vitesse de vos disques.</p>
+      </div>
+      <div class="hero-chips">
+        <span id="chip-demo" class="pill warn" hidden>Mode démonstration</span>
+        <span id="chip-remote" class="pill" hidden></span>
+      </div>
+    </header>
+
+    <section class="stats" id="stats"></section>
+
+    <section class="actions" id="actions"></section>
+
+    <div class="columns">
+      <section class="panel" id="sec-disks">
+        <div class="panel-head"><h2>Disques</h2><span class="count" id="disk-count"></span></div>
+        <div id="disks" class="list"></div>
+      </section>
+      <section class="panel" id="sec-images">
+        <div class="panel-head"><h2>Images</h2><span class="count" id="image-count"></span></div>
+        <div id="images" class="list"></div>
+      </section>
+    </div>
+  </main>
+</div>
 
 <section id="job" class="job" hidden>
   <div class="job-card">
-    <div class="ring-wrap">
-      <svg class="ring" viewBox="0 0 120 120">
-        <circle class="ring-bg" cx="60" cy="60" r="52"/>
-        <circle class="ring-fg" id="ring-fg" cx="60" cy="60" r="52"/>
-      </svg>
-      <div class="ring-text"><span id="job-pct">0</span><small>%</small></div>
-      <div class="ring-done" id="ring-done" hidden>
-        <svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+    <div class="job-left">
+      <div class="ring-wrap">
+        <svg class="ring" viewBox="0 0 120 120">
+          <defs>
+            <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#7cf5c4"/>
+              <stop offset="1" stop-color="#16a571"/>
+            </linearGradient>
+          </defs>
+          <circle class="ring-bg" cx="60" cy="60" r="52"/>
+          <circle class="ring-fg" id="ring-fg" cx="60" cy="60" r="52"/>
+        </svg>
+        <div class="ring-text"><span id="job-pct">0</span><small>%</small><em>progression totale</em></div>
+        <div class="ring-done" id="ring-done" hidden>
+          <svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+        </div>
       </div>
+      <ol class="plan" id="job-plan"></ol>
     </div>
+
     <div class="job-info">
+      <p class="eyebrow" id="job-kind"></p>
       <h2 id="job-title"></h2>
       <p id="job-step" class="muted"></p>
-      <div class="stats">
+      <div class="stats-mini">
         <div><small>Débit</small><strong id="job-rate">—</strong></div>
         <div><small>Temps restant</small><strong id="job-eta">—</strong></div>
         <div><small>Écoulé</small><strong id="job-elapsed">—</strong></div>
+      </div>
+      <div class="chart">
+        <div class="chart-head"><span>Débit en direct</span><span id="job-peak"></span></div>
+        <svg id="spark" viewBox="0 0 300 70" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="sparkFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#3ddc97" stop-opacity=".35"/>
+              <stop offset="1" stop-color="#3ddc97" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <path id="spark-area" fill="url(#sparkFill)" stroke="none"/>
+          <path id="spark-line" fill="none"/>
+        </svg>
       </div>
       <div class="bar-label"><span>Étape en cours</span><span id="job-step-pct"></span></div>
       <div class="bar"><div id="job-bar"></div></div>
       <p id="job-error" class="error-box" hidden></p>
       <div class="job-actions">
-        <button id="job-cancel" class="btn danger-ghost">Annuler</button>
-        <button id="job-close" class="btn primary" hidden>Retour à l'accueil</button>
+        <button id="job-cancel" class="btn danger-ghost">Annuler l'opération</button>
+        <button id="job-close" class="btn primary" hidden>Retour au tableau de bord</button>
+        <button id="job-logtoggle" class="btn ghost">Journal</button>
       </div>
     </div>
-    <details class="console" open>
-      <summary>Journal</summary>
-      <pre id="job-log"></pre>
-    </details>
+    <pre id="job-log" class="console" hidden></pre>
   </div>
 </section>
 
 <div id="modal" class="modal" hidden>
   <div class="modal-card" role="dialog" aria-modal="true">
-    <button class="icon-btn close" id="modal-close" aria-label="Fermer">
-      <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
-    </button>
+    <button class="icon-btn close" id="modal-close" aria-label="Fermer"><i data-icon="close"></i></button>
     <div id="modal-body"></div>
   </div>
 </div>
 
 <div id="login" class="login" hidden>
   <form class="login-card" id="login-form">
-    <img src="logo.svg" alt="" width="56" height="56">
+    <img src="logo.svg" alt="" width="64" height="64">
     <h1>TerraPilote</h1>
-    <p class="muted">Saisissez le code d'accès affiché sur l'écran du PC.</p>
-    <input id="login-code" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="000000">
+    <p class="muted">Saisissez le code d'accès affiché sur l'écran du poste.</p>
+    <input id="login-code" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="••••••">
     <button class="btn primary" type="submit">Se connecter</button>
     <p id="login-error" class="error-text"></p>
   </form>

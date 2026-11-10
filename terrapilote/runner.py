@@ -154,6 +154,7 @@ class Runner:
             "label": label,
             "step": self._step + 1,
             "steps": len(self._steps),
+            "plan": [lbl for lbl, _ in self._steps],
             "fraction": fraction,
             "overall": (before + fraction * weight) / total,
             "rate": rate,

@@ -1,0 +1,164 @@
+# TerraPilote
+
+Logiciel de **clonage de PC** sur clé USB bootable : capture d'un disque en image,
+déploiement d'une image sur un ou plusieurs postes, clonage direct disque à disque
+et diffusion **multicast** vers tout un parc en une seule transmission.
+
+![Tableau de bord](docs/accueil.png)
+
+| Confirmation avant effacement | Progression en direct |
+|---|---|
+| ![Confirmation](docs/confirmation.png) | ![Progression](docs/progression.png) |
+
+## Fonctions
+
+| Fonction | Ce qu'elle fait |
+|---|---|
+| **Capturer** | Sauvegarde un disque complet (table de partitions, zone d'amorçage, partitions) dans une image compressée, avec somme SHA-256 par fichier. |
+| **Déployer** | Restaure une image sur un disque de même taille ou plus grand. |
+| **Cloner** | Copie un disque directement sur un autre, sans passer par une image. |
+| **Diffuser / Recevoir** | Envoie une image à N PC en même temps (udpcast) : une seule transmission réseau, quel que soit le nombre de postes. |
+| **Vérifier** | Relit une image et contrôle toutes ses sommes SHA-256. |
+
+Systèmes de fichiers copiés « intelligemment » (seulement les blocs utilisés, via
+partclone) : NTFS, FAT/EFI, exFAT, ext2/3/4, Btrfs, XFS, F2FS, HFS+. Le reste
+(BitLocker, LUKS, LVM, partitions sans système de fichiers) est copié bloc à bloc.
+Tables MBR et GPT, démarrage BIOS et UEFI.
+
+## Vitesse
+
+- **Copie des seuls blocs utilisés** (partclone) : un disque de 500 Go rempli à
+  60 Go se capture comme 60 Go.
+- **Compression zstd multicœur**. Niveau « auto » : le plus rapide (`-1`) quand
+  le dépôt est local, adaptatif (`--adapt`) sur un partage réseau, où c'est le
+  réseau qui limite et où compresser plus permet d'envoyer moins.
+- **Chemin de données parallélisé** : tubes de 1 Mio entre les processus, lecture et
+  écriture côté Python dans deux fils avec une file tampon (le SHA-256 et
+  l'écriture se recouvrent avec la lecture), blocs de 8 à 16 Mio. Mesuré à
+  environ 1,2 Go/s en capture (SHA-256 compris) et 2,5 Go/s en restauration sur
+  4 cœurs : ce n'est pas le goulot.
+- **partclone** avec un tampon de 16 Mio et sans CRC par bloc (TerraPilote calcule
+  déjà un SHA-256), uniquement si la version installée connaît ces options.
+- **Clone brut** via deux `dd` reliés par un tube : la lecture et l'écriture se
+  font en même temps au lieu de s'alterner.
+- **Multicast** en mode full-duplex ; CPU passé en mode « performance » au
+  démarrage de la clé.
+
+## Interface
+
+Au démarrage, la clé affiche l'interface graphique en plein écran (navigateur en
+mode kiosque). Si l'affichage graphique échoue, un menu texte prend le relais.
+
+Sécurité intégrée :
+
+- la clé TerraPilote et le disque du dépôt d'images ne peuvent jamais être choisis
+  comme cible ;
+- un disque monté est refusé ;
+- avant tout effacement, il faut **taper le nom du disque** (ex. `sda`) ;
+- la taille du disque cible est vérifiée avant toute écriture.
+
+Pour essayer l'interface sur n'importe quel ordinateur, sans toucher aux disques :
+
+```bash
+python3 -m terrapilote web --demo
+```
+
+puis ouvrir <http://127.0.0.1:8470/>.
+
+### Accès depuis un autre PC
+
+Ajoutez `terrapilote.remote` aux paramètres de démarrage de la clé (touche `e` ou
+`Tab` dans le menu de démarrage). L'adresse et un **code d'accès à 6 chiffres**
+s'affichent en haut de l'écran du poste ; ouvrez `http://ADRESSE:8470/` depuis un
+autre PC, une tablette ou un téléphone, puis saisissez le code. Pratique pour
+lancer une diffusion multicast depuis votre bureau.
+
+Paramètre `terrapilote.text` : démarrer directement sur le menu texte.
+
+## Créer la clé USB
+
+Prérequis : Docker et un accès Internet (environ 4 Go d'espace libre).
+
+```bash
+./live/build.sh
+```
+
+L'image `live/out/terrapilote-AAAAMMJJ.iso` (hybride BIOS + UEFI) se copie sur une
+clé avec Balena Etcher, Rufus (mode DD) ou :
+
+```bash
+sudo dd if=live/out/terrapilote-AAAAMMJJ.iso of=/dev/sdX bs=4M conv=fsync status=progress
+```
+
+La clé est basée sur Debian 12 (bookworm) et contient partclone, zstd, udpcast,
+les outils NTFS/FAT/ext/Btrfs/XFS, les clients SMB/NFS/SSH et les pilotes réseau
+courants.
+
+## Dépôt d'images
+
+Les images sont lues et écrites dans `/srv/terrapilote/images`, où l'on monte au
+choix : un disque externe, un partage Windows/NAS (SMB), un export NFS ou un
+serveur SSH. Depuis l'interface : **Dépôt d'images → Configurer**.
+
+Format d'une image (un dossier) :
+
+```
+poste-type/
+├── terrapilote.json    manifeste : disque source, partitions, sommes SHA-256
+├── table.sfdisk        table de partitions
+├── boot.img            zone d'amorçage (avant la 1re partition)
+├── p1.partclone.zst    une archive par partition
+└── p3.dd.zst
+```
+
+## Ligne de commande
+
+Tout ce que fait l'interface est disponible en ligne de commande (en root) :
+
+```bash
+terrapilote disks
+terrapilote mount smb //192.168.1.10/images --user admin
+terrapilote capture /dev/nvme0n1 poste-type --description "Windows 11 + Office"
+terrapilote deploy poste-type /dev/sda
+terrapilote clone /dev/sda /dev/sdb
+terrapilote mcast-send poste-type --receivers 12
+terrapilote mcast-recv /dev/sda
+terrapilote verify poste-type
+terrapilote --dry-run deploy poste-type /dev/sda   # affiche les actions sans rien écrire
+```
+
+## Bonnes pratiques Windows
+
+- Passez le poste modèle par **sysprep** (`/generalize /oobe`) avant la capture
+  si l'image doit être déployée sur plusieurs PC.
+- Désactivez **BitLocker** avant la capture : sinon la partition est copiée bloc à
+  bloc (plus lent) et reste chiffrée.
+- Arrêtez Windows complètement (pas de démarrage rapide/veille prolongée) : sinon
+  NTFS est marqué « sale » et partclone refuse de le lire.
+- L'option « nouveaux identifiants » modifie les GUID de disque/partitions ; elle
+  peut empêcher Windows de démarrer en UEFI. Préférez sysprep.
+
+## Limites actuelles
+
+- Le disque cible doit être au moins aussi grand que l'espace partitionné du
+  disque source (pas de réduction de partitions). Sur un disque plus grand,
+  l'espace en plus reste libre.
+- Pas de démarrage réseau (PXE) : chaque PC récepteur démarre sur une clé.
+
+## Développement
+
+Python 3.11+, bibliothèque standard uniquement. Tests (aucun disque réel touché) :
+
+```bash
+python3 -m unittest
+```
+
+Structure :
+
+```
+terrapilote/      code (CLI, opérations, multicast, serveur web, interface)
+  static/         interface graphique (HTML/CSS/JS, sans dépendance externe)
+tests/            tests unitaires et API avec outils disque simulés
+live/             configuration de la clé USB (Debian live-build)
+legacy/           ancien projet AgroManager, conservé tel quel
+```

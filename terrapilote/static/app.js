@@ -9,7 +9,7 @@ function h(tag, attrs, ...children) {
     if (v === false || v === null || v === undefined) continue;
     if (k === "class") el.className = v;
     else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
-    else if (k === "html") el.innerHTML = v; // réservé aux icônes SVG statiques
+    else if (k === "icon") el.innerHTML = ICONS[v]; // icônes SVG statiques uniquement
     else el.setAttribute(k, v === true ? "" : v);
   }
   for (const c of children.flat()) {
@@ -18,19 +18,29 @@ function h(tag, attrs, ...children) {
   }
   return el;
 }
+const icon = (name, cls) => h("i", { class: cls || "", "data-icon": name, icon: name });
 
+const P = (d) => `<svg viewBox="0 0 24 24">${d}</svg>`;
 const ICONS = {
-  capture: '<svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>',
-  deploy: '<svg viewBox="0 0 24 24"><path d="M12 21V9M7 14l5-5 5 5"/><path d="M4 7V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2"/></svg>',
-  clone: '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="13" height="13" rx="3"/><path d="M8 21h10a3 3 0 0 0 3-3V8"/></svg>',
-  send: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2"/><path d="M8.5 15.5a5 5 0 0 1 0-7M15.5 8.5a5 5 0 0 1 0 7M5.6 18.4a9 9 0 0 1 0-12.8M18.4 5.6a9 9 0 0 1 0 12.8"/></svg>',
-  recv: '<svg viewBox="0 0 24 24"><path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.5" r="1.2"/><path d="M2 9a14 14 0 0 1 20 0"/></svg>',
-  verify: '<svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg>',
-  disk: '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 15h.01M11 15h6"/></svg>',
-  usb: '<svg viewBox="0 0 24 24"><rect x="7" y="9" width="10" height="12" rx="2"/><path d="M9 9V3h6v6M10.5 5.5h.01M13.5 5.5h.01"/></svg>',
-  image: '<svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>',
-  warn: '<svg viewBox="0 0 24 24"><path d="M12 3l9.5 17h-19z"/><path d="M12 10v4M12 17.5h.01"/></svg>',
-  arrow: '<svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+  capture: P('<path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>'),
+  deploy: P('<path d="M12 21V9M7 14l5-5 5 5"/><path d="M4 7V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2"/>'),
+  clone: P('<rect x="3" y="3" width="13" height="13" rx="3"/><path d="M8 21h10a3 3 0 0 0 3-3V8"/>'),
+  send: P('<circle cx="12" cy="12" r="2"/><path d="M8.5 15.5a5 5 0 0 1 0-7M15.5 8.5a5 5 0 0 1 0 7M5.6 18.4a9 9 0 0 1 0-12.8M18.4 5.6a9 9 0 0 1 0 12.8"/>'),
+  recv: P('<path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.5" r="1.2"/><path d="M2 9a14 14 0 0 1 20 0"/>'),
+  verify: P('<path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/>'),
+  disk: P('<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 15h.01M11 15h6"/>'),
+  usb: P('<rect x="7" y="9" width="10" height="12" rx="2"/><path d="M9 9V3h6v6M10.5 5.5h.01M13.5 5.5h.01"/>'),
+  image: P('<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>'),
+  warn: P('<path d="M12 3l9.5 17h-19z"/><path d="M12 10v4M12 17.5h.01"/>'),
+  arrow: P('<path d="M5 12h14M13 6l6 6-6 6"/>'),
+  home: P('<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/>'),
+  reboot: P('<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>'),
+  power: P('<path d="M12 3v9M6.3 6.3a8 8 0 1 0 11.4 0"/>'),
+  close: P('<path d="M6 6l12 12M18 6L6 18"/>'),
+  net: P('<rect x="9" y="3" width="6" height="5" rx="1"/><rect x="3" y="16" width="6" height="5" rx="1"/><rect x="15" y="16" width="6" height="5" rx="1"/><path d="M12 8v4M6 16v-2h12v2"/>'),
+  cloud: P('<path d="M7 18a4.5 4.5 0 0 1-.5-9A6 6 0 0 1 18 9.5a4 4 0 0 1-1 8.5z"/>'),
+  check: P('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
+  stack: P('<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>'),
 };
 
 function size(n) {
@@ -40,7 +50,7 @@ function size(n) {
   while (n >= 1000 && i < u.length - 1) { n /= 1000; i++; }
   return (i === 0 ? n.toFixed(0) : n >= 100 ? n.toFixed(0) : n.toFixed(1)).replace(".", ",") + " " + u[i];
 }
-function rate(bps) { return bps ? size(bps) + "/s" : "—"; }
+const rate = (bps) => (bps ? size(bps) + "/s" : "—");
 function duration(s) {
   if (s === null || s === undefined || !isFinite(s)) return "—";
   s = Math.max(0, Math.round(s));
@@ -56,9 +66,11 @@ function fsColor(fs, mode) {
   return "var(--fs-other)";
 }
 function fsName(fs) {
-  return { vfat: "FAT32 (EFI)", ntfs: "NTFS", swap: "swap", BitLocker: "BitLocker", iso9660: "ISO" }[fs] || fs || "brute";
+  return { vfat: "FAT32", ntfs: "NTFS", swap: "swap", BitLocker: "BitLocker", iso9660: "ISO" }[fs] || fs || "brute";
 }
-function today() { return new Date().toISOString().slice(0, 10); }
+const today = () => new Date().toISOString().slice(0, 10);
+
+document.querySelectorAll("i[data-icon]").forEach((el) => (el.innerHTML = ICONS[el.dataset.icon] || ""));
 
 /* --------------------------------------------------------------------- API */
 let code = document.querySelector('meta[name="tp-code"]').content;
@@ -88,11 +100,8 @@ function toast(msg, bad) {
 
 /* ------------------------------------------------------------------- état */
 let S = null;
-let shownJob = null;   // id de la tâche affichée
-let dismissedJob = null;
-let shownLogs = -1;
-
 let firstLoad = true;
+let dismissedJob = null;
 
 async function refresh() {
   try {
@@ -102,8 +111,7 @@ async function refresh() {
     $("#login").hidden = true;
     render();
   } catch (e) {
-    if (!$("#login").hidden) return;
-    toast(e.message, true);
+    if ($("#login").hidden) toast(e.message, true);
   }
 }
 
@@ -112,54 +120,80 @@ function loop() {
   setTimeout(async () => { await refresh(); loop(); }, running ? 700 : 2500);
 }
 
+function tickClock() {
+  const d = new Date();
+  const txt = d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" }) +
+    " · " + d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  $("#clock").textContent = txt;
+}
+
 /* ----------------------------------------------------------------- rendu */
 const ACTIONS = [
-  { id: "capture", cls: "", title: "Capturer", text: "Sauvegarder un disque dans une image", run: wizardCapture },
-  { id: "deploy", cls: "blue", title: "Déployer", text: "Restaurer une image sur ce PC", run: wizardDeploy },
-  { id: "clone", cls: "violet", title: "Cloner", text: "Copier un disque sur un autre", run: wizardClone },
-  { id: "send", cls: "amber", title: "Diffuser", text: "Envoyer une image à plusieurs PC", run: wizardSend },
-  { id: "recv", cls: "cyan", title: "Recevoir", text: "Recevoir une image du réseau", run: wizardReceive },
-  { id: "verify", cls: "", title: "Vérifier", text: "Contrôler l'intégrité d'une image", run: wizardVerify },
+  { id: "capture", c: "", title: "Capturer", text: "Sauvegarder un disque complet dans une image compressée", run: () => wizardCapture() },
+  { id: "deploy", c: "c-blue", title: "Déployer", text: "Restaurer une image sur ce poste en quelques minutes", run: () => wizardDeploy() },
+  { id: "clone", c: "c-violet", title: "Cloner", text: "Copier un disque sur un autre, directement", run: () => wizardClone() },
+  { id: "send", c: "c-amber", title: "Diffuser", text: "Une image vers plusieurs PC", run: () => wizardSend(), small: true },
+  { id: "recv", c: "c-cyan", title: "Recevoir", text: "Image depuis le réseau", run: () => wizardReceive(), small: true },
+  { id: "verify", c: "", title: "Vérifier", text: "Intégrité SHA-256", run: () => wizardVerify(), small: true },
 ];
 
 function renderActions() {
   const box = $("#actions");
   if (box.childElementCount) return;
   for (const a of ACTIONS) {
-    box.append(h("button", { class: "action " + a.cls, onclick: () => a.run() },
-      h("div", { class: "ico", html: ICONS[a.id] }), h("h3", {}, a.title), h("p", {}, a.text)));
+    box.append(h("button", { class: `action ${a.c} ${a.small ? "small" : ""}`, onclick: a.run },
+      icon(a.id, "ico"),
+      a.small ? h("div", {}, h("h3", {}, a.title), h("p", {}, a.text)) : [h("h3", {}, a.title), h("p", {}, a.text)],
+      icon("arrow", "go")));
   }
+}
+
+function stat(label, value, sub, ic) {
+  return h("div", { class: "stat" }, icon(ic), h("small", {}, label), h("strong", {}, value), h("span", {}, sub));
 }
 
 function render() {
   renderActions();
-  $("#version").textContent = "v" + S.version;
+  $("#version").textContent = `version ${S.version}`;
   $("#chip-demo").hidden = !S.demo;
-  const st = S.storage;
-  const chip = $("#chip-storage");
-  chip.replaceChildren(
-    h("span", { class: "dot" + (st.mounted ? " ok" : "") }),
-    st.mounted ? `Dépôt : ${st.source || st.dir} · ${size(st.free)} libres` : "Dépôt d'images non monté",
-  );
-  $("#chip-net").textContent = S.interface ? `Réseau : ${S.interface}` : "Réseau : aucun";
   const rem = $("#chip-remote");
   rem.hidden = !S.remote;
   if (S.remote) {
     const addr = (S.remote.addresses || [])[0];
-    rem.textContent = `Accès distant : ${addr ? addr + ":" + S.remote.port : "port " + S.remote.port} · code ${S.remote.code}`;
+    rem.textContent = `Accès distant · ${addr ? addr + ":" + S.remote.port : "port " + S.remote.port} · code ${S.remote.code}`;
   }
 
-  $("#disk-count").textContent = `${S.disks.length} détecté(s)`;
+  const st = S.storage;
+  const capacity = S.disks.reduce((a, d) => a + d.size, 0);
+  const imgTotal = S.images.reduce((a, i) => a + i.size, 0);
+  $("#stats").replaceChildren(
+    stat("Disques détectés", S.disks.length, `${size(capacity)} au total`, "disk"),
+    stat("Images", st.mounted ? S.images.length : "—", st.mounted ? `${size(imgTotal)} stockés` : "dépôt non monté", "stack"),
+    stat("Espace libre du dépôt", st.mounted ? size(st.free) : "—", st.mounted ? st.fstype.toUpperCase() || "local" : "à configurer", "cloud"),
+    stat("Réseau", S.interface || "aucun", S.remote && S.remote.addresses.length ? S.remote.addresses[0] : (S.interface ? "connecté" : "câble débranché ?"), "net"),
+  );
+
+  const side = $("#side-storage");
+  const used = st.mounted && st.free !== null ? Math.min(1, imgTotal / (imgTotal + st.free)) : 0;
+  side.replaceChildren(
+    h("div", { class: "label" }, "Dépôt d'images"),
+    h("div", { class: "title" }, h("span", { class: "dot" + (st.mounted ? " ok" : "") }), st.mounted ? (st.source || st.dir) : "Non monté"),
+    h("div", { class: "sub" }, st.mounted ? `${size(st.free)} libres · ${st.fstype || "local"}` : "Choisissez où lire et écrire les images"),
+    st.mounted ? h("div", { class: "meter" }, h("div", { style: `width:${Math.max(used * 100, 2)}%` })) : null,
+    h("button", { class: "btn" + (st.mounted ? "" : " primary"), onclick: () => storageDialog() }, st.mounted ? "Changer de dépôt" : "Configurer le dépôt"));
+  $("#side-net").replaceChildren(icon("net"), S.interface ? `Interface ${S.interface}` : "Aucun réseau");
+
+  $("#disk-count").textContent = `${S.disks.length} disque(s)`;
   $("#disks").replaceChildren(...S.disks.map((d) => diskCard(d)));
-  $("#image-count").textContent = st.mounted ? `${S.images.length} image(s)` : "";
+  $("#image-count").textContent = st.mounted ? `${S.images.length} image(s)` : "—";
   $("#images").replaceChildren(...imageListOrEmpty());
   renderJob();
 }
 
 function imageListOrEmpty() {
   if (!S.storage.mounted) {
-    return [h("div", { class: "empty" }, "Aucun dépôt d'images monté.",
-      h("br"), h("button", { class: "btn primary", onclick: storageDialog }, "Choisir le dépôt"))];
+    return [h("div", { class: "empty" }, "Aucun dépôt d'images monté.", h("br"),
+      h("button", { class: "btn primary", onclick: () => storageDialog() }, "Configurer le dépôt"))];
   }
   if (!S.images.length) return [h("div", { class: "empty" }, "Le dépôt ne contient encore aucune image.")];
   return S.images.map((i) => imageCard(i));
@@ -177,8 +211,7 @@ function partBar(parts, total) {
 
 function legend(parts) {
   return h("div", { class: "legend" }, parts.map((p) =>
-    h("span", {}, h("i", { style: `background:${fsColor(p.fstype, p.mode)}` }),
-      `${p.label || fsName(p.fstype)} ${size(p.size)}`)));
+    h("span", {}, h("i", { style: `background:${fsColor(p.fstype, p.mode)}` }), `${p.label || fsName(p.fstype)} ${size(p.size)}`)));
 }
 
 function diskBadges(d) {
@@ -186,43 +219,36 @@ function diskBadges(d) {
   if (d.protected) {
     const why = d.protected.replace(/^(la|le) /, "");
     b.push(h("span", { class: "badge lock" }, "🔒 " + why.charAt(0).toUpperCase() + why.slice(1)));
-  }
-  else if (d.mounted) b.push(h("span", { class: "badge lock" }, "monté"));
+  } else if (d.mounted) b.push(h("span", { class: "badge lock" }, "monté"));
   if (d.readonly) b.push(h("span", { class: "badge" }, "lecture seule"));
   return b;
 }
 
 function diskCard(d, opts = {}) {
-  const icon = d.transport === "usb" ? ICONS.usb : ICONS.disk;
-  const el = h("div", {
+  return h("div", {
     class: "disk" + (opts.pick ? " pick" : "") + (opts.disabled ? " disabled" : "") + (opts.selected ? " selected" : ""),
     onclick: opts.disabled ? null : opts.onclick,
   },
-  h("div", { class: "disk-top" },
-    h("div", { class: "disk-ico", html: icon }),
-    h("div", { class: "disk-meta" },
-      h("div", { class: "disk-name" }, d.path),
-      h("div", { class: "disk-sub" }, [d.model, (d.transport || "").toUpperCase()].filter(Boolean).join(" · "))),
+  h("div", { class: "row-top" },
+    icon(d.transport === "usb" ? "usb" : "disk", "tile-ico"),
+    h("div", { class: "meta" }, h("strong", {}, d.path),
+      h("div", { class: "sub" }, [d.model, (d.transport || "").toUpperCase()].filter(Boolean).join(" · "))),
     ...diskBadges(d),
     opts.reason ? h("span", { class: "badge bad" }, opts.reason) : null,
-    h("div", { class: "disk-size" }, size(d.size))),
+    h("div", { class: "size" }, size(d.size))),
   d.partitions.length ? partBar(d.partitions, d.size) : h("div", { class: "pbar" }),
-  d.partitions.length ? legend(d.partitions) : h("div", { class: "legend" }, "Aucune partition"));
-  return el;
+  d.partitions.length ? legend(d.partitions) : h("div", { class: "legend" }, "Aucune partition — disque vierge"));
 }
 
 function imageCard(i, opts = {}) {
-  return h("div", {
-    class: "img" + (opts.pick ? " pick" : "") + (opts.selected ? " selected" : ""),
-    onclick: opts.onclick,
-  },
-  h("div", { class: "img-ico", html: ICONS.image }),
-  h("div", { class: "img-meta" },
-    h("strong", {}, i.name),
-    h("div", { class: "disk-sub" },
-      [i.description, (i.created || "").slice(0, 10), `source ${size(i.source.size)}`].filter(Boolean).join(" · ")),
-    partBar(i.partitions, i.source.size || 1)),
-  h("div", { class: "disk-size" }, size(i.size)));
+  return h("div", { class: "img" + (opts.pick ? " pick" : "") + (opts.selected ? " selected" : ""), onclick: opts.onclick },
+    h("div", { class: "row-top" },
+      icon("image", "tile-ico"),
+      h("div", { class: "meta" }, h("strong", {}, i.name),
+        h("div", { class: "sub" }, [i.description, (i.created || "").slice(0, 10)].filter(Boolean).join(" · "))),
+      h("div", { class: "size" }, size(i.size))),
+    partBar(i.partitions, i.source.size || 1),
+    h("div", { class: "legend" }, `Disque source ${size(i.source.size)}${i.source.model ? " · " + i.source.model : ""} · ${i.partitions.length} partition(s)`));
 }
 
 /* ----------------------------------------------------------------- modale */
@@ -249,7 +275,7 @@ function wizFoot(back, next) {
 function needStorage() {
   if (S.storage.mounted) return false;
   openModal(wizHead("Dépôt d'images requis", "Indiquez d'abord où lire ou enregistrer les images."),
-    wizFoot(null, { label: "Choisir le dépôt", fn: storageDialog }));
+    wizFoot(null, { label: "Configurer le dépôt", fn: () => storageDialog() }));
   return true;
 }
 
@@ -257,7 +283,7 @@ function needImages() {
   if (needStorage()) return true;
   if (S.images.length) return false;
   openModal(wizHead("Aucune image", "Le dépôt ne contient aucune image. Commencez par capturer un disque."),
-    wizFoot(null, { label: "Capturer un disque", fn: wizardCapture }));
+    wizFoot(null, { label: "Capturer un disque", fn: () => wizardCapture() }));
   return true;
 }
 
@@ -277,15 +303,17 @@ function targetProblem(d, need, exclude) {
   return null;
 }
 
+const flow = () => icon("arrow", "flow");
+
 function dangerConfirm(d, onValid) {
   const input = h("input", { placeholder: d.name, autocomplete: "off", spellcheck: "false" });
   const zone = h("div", { class: "danger-zone" },
-    h("h3", { html: ICONS.warn }, "Effacement total du disque"),
+    h("h3", {}, icon("warn"), "Effacement total du disque"),
     h("p", { class: "note" }, `Toutes les données de ${d.path} (${d.model || "disque"}, ${size(d.size)}) seront définitivement remplacées.`),
-    h("div", { class: "field", style: "margin:12px 0 0" },
-      h("label", {}, h("span", {}, "Tapez "), h("code", {}, d.name), h("span", {}, " pour confirmer")), input));
+    h("div", { class: "field", style: "margin:14px 0 0" },
+      h("label", {}, "Tapez ", h("code", {}, d.name), " pour confirmer"), input));
   input.addEventListener("input", () => onValid(input.value.trim() === d.name, input.value.trim()));
-  setTimeout(() => input.focus(), 50);
+  setTimeout(() => input.focus(), 60);
   return zone;
 }
 
@@ -304,9 +332,9 @@ async function launch(action, body) {
 function wizardCapture(step = 0, sel = {}) {
   if (needStorage()) return;
   if (step === 0) {
-    const disks = S.disks.filter((d) => !d.protected);
-    return openModal(wizHead("Capturer un disque", "Choisissez le disque à sauvegarder.", 0, 2),
-      pickDisks(disks, sel.disk, (d) => wizardCapture(0, { ...sel, disk: d.path }), (d) => d.mounted ? "monté" : (d.partitions.length ? null : "vide")),
+    return openModal(wizHead("Capturer un disque", "Choisissez le disque à sauvegarder. Il ne sera pas modifié.", 0, 2),
+      pickDisks(S.disks.filter((d) => !d.protected), sel.disk, (d) => wizardCapture(0, { ...sel, disk: d.path }),
+        (d) => (d.mounted ? "monté" : d.partitions.length ? null : "vide")),
       wizFoot(null, { label: "Continuer", disabled: !sel.disk, fn: () => wizardCapture(1, sel) }));
   }
   const d = S.disks.find((x) => x.path === sel.disk);
@@ -314,40 +342,45 @@ function wizardCapture(step = 0, sel = {}) {
   const desc = h("input", { value: sel.description || "", placeholder: "ex. Windows 11 + Office, poste accueil" });
   let level = sel.level || "auto";
   const seg = h("div", { class: "seg" }, [["auto", "Auto (recommandé)"], ["1", "Ultra-rapide"], ["6", "Équilibré"], ["15", "Compact"]].map(([v, l]) =>
-    h("button", { class: v === level ? "on" : "", onclick: (e) => { level = v; seg.querySelectorAll("button").forEach((b) => b.classList.remove("on")); e.target.classList.add("on"); } }, l)));
-  openModal(wizHead("Capturer un disque", `Source : ${d.path} · ${d.model || ""} · ${size(d.size)}`, 1, 2),
+    h("button", { class: v === level ? "on" : "", onclick: (e) => { level = v; seg.querySelectorAll("button").forEach((b) => b.classList.remove("on")); e.currentTarget.classList.add("on"); } }, l)));
+  openModal(wizHead("Capturer un disque", "Nommez l'image et lancez la capture.", 1, 2),
     diskCard(d),
-    h("div", { style: "height:16px" }),
-    h("div", { class: "field" }, h("label", {}, "Nom de l'image"), name),
-    h("div", { class: "field" }, h("label", {}, "Description"), desc),
+    h("div", { style: "height:18px" }),
+    h("div", { class: "row" },
+      h("div", { class: "field" }, h("label", {}, "Nom de l'image"), name),
+      h("div", { class: "field" }, h("label", {}, "Description"), desc)),
     h("div", { class: "field" }, h("label", {}, "Compression"), seg,
-      h("p", { class: "note" }, "Auto : compression la plus rapide sur un disque local, adaptée au débit sur un partage réseau.")),
+      h("p", { class: "note" }, "Auto : compression la plus rapide sur un disque local, adaptée au débit sur un partage réseau. Seuls les blocs utilisés sont copiés.")),
     wizFoot({ fn: () => wizardCapture(0, { ...sel, name: name.value, description: desc.value, level }) },
       { label: "Lancer la capture", fn: () => launch("capture", { disk: d.path, name: name.value.trim(), description: desc.value, level }) }));
   name.focus();
+}
+
+function imagePicker(selected, onPick) {
+  return h("div", { class: "pick-list" }, S.images.map((i) => imageCard(i, { pick: true, selected: selected === i.name, onclick: () => onPick(i) })));
 }
 
 function wizardDeploy(step = 0, sel = {}) {
   if (needImages()) return;
   if (step === 0) {
     return openModal(wizHead("Déployer une image", "Choisissez l'image à restaurer.", 0, 3),
-      h("div", { class: "pick-list" }, S.images.map((i) => imageCard(i, { pick: true, selected: sel.image === i.name, onclick: () => wizardDeploy(0, { ...sel, image: i.name }) }))),
+      imagePicker(sel.image, (i) => wizardDeploy(0, { ...sel, image: i.name })),
       wizFoot(null, { label: "Continuer", disabled: !sel.image, fn: () => wizardDeploy(1, sel) }));
   }
   const img = S.images.find((i) => i.name === sel.image);
   if (step === 1) {
-    return openModal(wizHead("Déployer une image", `Image « ${img.name} » · ${size(img.required)} nécessaires. Choisissez le disque cible.`, 1, 3),
+    return openModal(wizHead("Déployer une image", `« ${img.name} » nécessite ${size(img.required)}. Choisissez le disque cible.`, 1, 3),
       pickDisks(S.disks, sel.disk, (d) => wizardDeploy(1, { ...sel, disk: d.path }), (d) => targetProblem(d, img.required)),
       wizFoot({ fn: () => wizardDeploy(0, sel) }, { label: "Continuer", disabled: !sel.disk, fn: () => wizardDeploy(2, sel) }));
   }
   const d = S.disks.find((x) => x.path === sel.disk);
-  let ok = false, typed = "";
-  const go = h("button", { class: "btn danger", disabled: true, onclick: () => launch("deploy", { image: img.name, disk: d.path, confirm: typed, new_uuids: uu.checked }) }, "Effacer et déployer");
+  let typed = "";
   const uu = h("input", { type: "checkbox" });
-  openModal(wizHead("Déployer une image", "Vérifiez avant de lancer.", 2, 3),
-    h("div", { class: "arrow" }, imageCard(img), h("div", { html: ICONS.arrow, style: "width:26px;height:26px;color:var(--accent)" }), diskCard(d)),
-    h("div", { style: "height:16px" }),
-    dangerConfirm(d, (valid, v) => { ok = valid; typed = v; go.disabled = !ok; }),
+  const go = h("button", { class: "btn danger", disabled: true, onclick: () => launch("deploy", { image: img.name, disk: d.path, confirm: typed, new_uuids: uu.checked }) }, "Effacer et déployer");
+  openModal(wizHead("Déployer une image", "Dernière vérification avant l'écriture.", 2, 3),
+    h("div", { class: "arrow" }, imageCard(img), flow(), diskCard(d)),
+    h("div", { style: "height:18px" }),
+    dangerConfirm(d, (valid, v) => { typed = v; go.disabled = !valid; }),
     h("label", { class: "check" }, uu, h("span", {}, "Générer de nouveaux identifiants de disque et de partitions (déconseillé pour Windows : préférez sysprep).")),
     h("div", { class: "wiz-foot" }, h("button", { class: "btn", onclick: () => wizardDeploy(1, sel) }, "Retour"), go));
 }
@@ -355,22 +388,22 @@ function wizardDeploy(step = 0, sel = {}) {
 function wizardClone(step = 0, sel = {}) {
   if (step === 0) {
     return openModal(wizHead("Cloner un disque", "Choisissez le disque SOURCE (il ne sera pas modifié).", 0, 3),
-      pickDisks(S.disks.filter((d) => !d.protected), sel.source, (d) => wizardClone(0, { ...sel, source: d.path }), (d) => d.mounted ? "monté" : (d.partitions.length ? null : "vide")),
+      pickDisks(S.disks.filter((d) => !d.protected), sel.source, (d) => wizardClone(0, { ...sel, source: d.path }),
+        (d) => (d.mounted ? "monté" : d.partitions.length ? null : "vide")),
       wizFoot(null, { label: "Continuer", disabled: !sel.source, fn: () => wizardClone(1, sel) }));
   }
   const src = S.disks.find((x) => x.path === sel.source);
-  const need = null; // la taille exacte requise est vérifiée par le serveur
   if (step === 1) {
     return openModal(wizHead("Cloner un disque", `Source : ${src.path}. Choisissez le disque CIBLE.`, 1, 3),
-      pickDisks(S.disks, sel.target, (d) => wizardClone(1, { ...sel, target: d.path }), (d) => targetProblem(d, need, src.path)),
+      pickDisks(S.disks, sel.target, (d) => wizardClone(1, { ...sel, target: d.path }), (d) => targetProblem(d, null, src.path)),
       wizFoot({ fn: () => wizardClone(0, sel) }, { label: "Continuer", disabled: !sel.target, fn: () => wizardClone(2, sel) }));
   }
   const dst = S.disks.find((x) => x.path === sel.target);
   let typed = "";
   const go = h("button", { class: "btn danger", disabled: true, onclick: () => launch("clone", { source: src.path, target: dst.path, confirm: typed }) }, "Effacer et cloner");
-  openModal(wizHead("Cloner un disque", "Vérifiez avant de lancer.", 2, 3),
-    h("div", { class: "arrow" }, diskCard(src), h("div", { html: ICONS.arrow, style: "width:26px;height:26px;color:var(--accent)" }), diskCard(dst)),
-    h("div", { style: "height:16px" }),
+  openModal(wizHead("Cloner un disque", "Dernière vérification avant l'écriture.", 2, 3),
+    h("div", { class: "arrow" }, diskCard(src), flow(), diskCard(dst)),
+    h("div", { style: "height:18px" }),
     dangerConfirm(dst, (valid, v) => { typed = v; go.disabled = !valid; }),
     h("div", { class: "wiz-foot" }, h("button", { class: "btn", onclick: () => wizardClone(1, sel) }, "Retour"), go));
 }
@@ -379,7 +412,7 @@ function wizardSend(step = 0, sel = {}) {
   if (needImages()) return;
   if (step === 0) {
     return openModal(wizHead("Diffuser en multicast", "Choisissez l'image à envoyer à plusieurs PC en même temps.", 0, 2),
-      h("div", { class: "pick-list" }, S.images.map((i) => imageCard(i, { pick: true, selected: sel.image === i.name, onclick: () => wizardSend(0, { ...sel, image: i.name }) }))),
+      imagePicker(sel.image, (i) => wizardSend(0, { ...sel, image: i.name })),
       wizFoot(null, { label: "Continuer", disabled: !sel.image, fn: () => wizardSend(1, sel) }));
   }
   const n = h("input", { value: sel.receivers || 5, inputmode: "numeric" });
@@ -390,7 +423,7 @@ function wizardSend(step = 0, sel = {}) {
       h("div", { class: "field" }, h("label", {}, "Nombre de PC récepteurs"),
         h("div", { class: "stepper" }, h("button", { onclick: () => bump(-1) }, "−"), n, h("button", { onclick: () => bump(1) }, "+"))),
       h("div", { class: "field" }, h("label", {}, "Démarrer au plus tard après"), wait)),
-    h("p", { class: "note" }, "Démarrez les PC à équiper sur leur clé TerraPilote et choisissez « Recevoir ». La diffusion commence dès que tous sont connectés : une seule transmission pour tous les postes, au débit du plus lent."),
+    h("p", { class: "note" }, "Démarrez les PC à équiper sur leur clé TerraPilote et choisissez « Recevoir ». La diffusion commence dès que tous sont connectés : une seule transmission pour tous les postes."),
     wizFoot({ fn: () => wizardSend(0, sel) }, { label: "Lancer la diffusion", fn: () => launch("mcast-send", { image: sel.image, receivers: parseInt(n.value, 10) || 1, max_wait: parseInt(wait.value, 10) }) }));
 }
 
@@ -404,7 +437,7 @@ function wizardReceive(step = 0, sel = {}) {
   let typed = "";
   const go = h("button", { class: "btn danger", disabled: true, onclick: () => launch("mcast-recv", { disk: d.path, confirm: typed }) }, "Effacer et attendre l'émetteur");
   openModal(wizHead("Recevoir une image multicast", `Interface réseau : ${S.interface || "aucune"}`, 1, 2),
-    diskCard(d), h("div", { style: "height:16px" }),
+    diskCard(d), h("div", { style: "height:18px" }),
     dangerConfirm(d, (valid, v) => { typed = v; go.disabled = !valid; }),
     h("div", { class: "wiz-foot" }, h("button", { class: "btn", onclick: () => wizardReceive(0, sel) }, "Retour"), go));
 }
@@ -412,7 +445,7 @@ function wizardReceive(step = 0, sel = {}) {
 function wizardVerify(sel = {}) {
   if (needImages()) return;
   openModal(wizHead("Vérifier une image", "Relit chaque fichier et contrôle sa somme SHA-256."),
-    h("div", { class: "pick-list" }, S.images.map((i) => imageCard(i, { pick: true, selected: sel.image === i.name, onclick: () => wizardVerify({ image: i.name }) }))),
+    imagePicker(sel.image, (i) => wizardVerify({ image: i.name })),
     wizFoot(null, { label: "Vérifier", disabled: !sel.image, fn: () => launch("verify", { image: sel.image }) }));
 }
 
@@ -429,7 +462,7 @@ function storageDialog(kind = "smb") {
       h("div", { class: "row" }, h("div", { class: "field" }, h("label", {}, "Utilisateur"), user), h("div", { class: "field" }, h("label", {}, "Mot de passe"), pass)),
       h("div", { class: "field" }, h("label", {}, "Domaine"), dom)];
     submit = () => ({ kind, target: share.value.trim(), user: user.value.trim(), password: pass.value, domain: dom.value.trim() });
-    setTimeout(() => share.focus(), 50);
+    setTimeout(() => share.focus(), 60);
   } else if (kind === "nfs") {
     const exp = h("input", { placeholder: "192.168.1.10:/srv/images" });
     form = [h("div", { class: "field" }, h("label", {}, "Export NFS"), exp)];
@@ -437,12 +470,12 @@ function storageDialog(kind = "smb") {
   } else {
     let chosen = null;
     const parts = [];
-    for (const d of S.disks) for (const p of d.partitions) if (p.fstype && p.fstype !== "swap" && p.fstype !== "iso9660") parts.push({ d, p });
+    for (const d of S.disks) for (const p of d.partitions) if (p.fstype && !["swap", "iso9660"].includes(p.fstype)) parts.push({ d, p });
     const list = h("div", { class: "pick-list" }, parts.length ? parts.map(({ d, p }) => {
       const el = h("div", { class: "img pick", onclick: () => { chosen = p.path; list.querySelectorAll(".pick").forEach((x) => x.classList.remove("selected")); el.classList.add("selected"); } },
-        h("div", { class: "img-ico", html: ICONS.disk }),
-        h("div", { class: "img-meta" }, h("strong", {}, `${p.path} ${p.label ? "· " + p.label : ""}`), h("div", { class: "disk-sub" }, `${fsName(p.fstype)} · ${d.model || d.path}`)),
-        h("div", { class: "disk-size" }, size(p.size)));
+        h("div", { class: "row-top" }, icon("disk", "tile-ico"),
+          h("div", { class: "meta" }, h("strong", {}, `${p.path}${p.label ? " · " + p.label : ""}`), h("div", { class: "sub" }, `${fsName(p.fstype)} · ${d.model || d.path}`)),
+          h("div", { class: "size" }, size(p.size))));
       return el;
     }) : h("div", { class: "empty" }, "Aucune partition utilisable. Branchez un disque externe."));
     form = [list];
@@ -452,7 +485,7 @@ function storageDialog(kind = "smb") {
     S.storage.mounted ? h("button", { class: "btn danger-ghost", onclick: () => mount({ kind: "umount" }) }, "Démonter le dépôt actuel") : h("span"),
     h("button", { class: "btn primary", onclick: () => mount(submit()) }, "Monter le dépôt"));
   openModal(wizHead("Dépôt d'images", S.storage.mounted ? `Actuellement : ${S.storage.source} (${S.storage.fstype})` : "Où sont stockées vos images ?"),
-    seg, h("div", { style: "height:16px" }), ...form, foot);
+    seg, h("div", { style: "height:18px" }), ...form, foot);
 }
 
 async function mount(body) {
@@ -464,20 +497,46 @@ async function mount(body) {
     refresh();
   } catch (e) { toast(e.message, true); }
 }
-$("#chip-storage").onclick = () => storageDialog();
 
 /* ------------------------------------------------------------------ tâche */
 const CIRC = 2 * Math.PI * 52;
+const KINDS = { capture: "Capture", deploy: "Déploiement", clone: "Clonage", "mcast-send": "Diffusion multicast", "mcast-recv": "Réception multicast", verify: "Vérification" };
+let shownJob = null, shownLogs = -1, history = [];
+
+function renderSpark(job) {
+  const p = job.progress || {};
+  if (job.state === "running" && p.rate) history.push(p.rate);
+  if (history.length > 120) history.shift();
+  const max = Math.max(...history, 1);
+  $("#job-peak").textContent = history.length ? `pic ${rate(max)}` : "";
+  if (history.length < 2) { $("#spark-line").setAttribute("d", ""); $("#spark-area").setAttribute("d", ""); return; }
+  const pts = history.map((v, i) => [i * 300 / (history.length - 1), 66 - (v / max) * 58]);
+  const line = pts.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`).join("");
+  $("#spark-line").setAttribute("d", line);
+  $("#spark-area").setAttribute("d", `${line}L300,70L0,70Z`);
+}
+
+function renderPlan(job) {
+  const p = job.progress || {};
+  const plan = p.plan || [];
+  const done = job.state === "done";
+  $("#job-plan").replaceChildren(...plan.map((label, i) => {
+    const cls = done || i < p.step - 1 ? "done" : i === p.step - 1 ? "now" : "";
+    return h("li", { class: cls }, h("b", { icon: cls === "done" ? "check" : null }, cls === "done" ? null : String(i + 1)), label);
+  }));
+}
 
 function renderJob() {
   const job = S && S.job;
   const view = $("#job");
   if (!job || job.id === dismissedJob) { view.hidden = true; return; }
+  if (shownJob !== job.id) { history = []; shownLogs = -1; }
   view.hidden = false;
   view.className = "job " + job.state;
   const p = job.progress || {};
   const done = job.state === "done";
   const pct = done ? 100 : Math.floor((p.overall || 0) * 1000) / 10;
+  $("#job-kind").textContent = KINDS[job.kind] || "Opération";
   $("#job-title").textContent = job.title;
   $("#job-pct").textContent = pct.toFixed(pct >= 100 ? 0 : 1).replace(".", ",");
   $("#ring-fg").style.strokeDashoffset = CIRC * (1 - pct / 100);
@@ -486,19 +545,23 @@ function renderJob() {
   $("#job-step-pct").textContent = Math.floor(stepPct) + " %";
   $("#ring-done").hidden = !done;
   document.querySelector(".ring-text").style.visibility = done ? "hidden" : "visible";
-  const states = { done: "Terminé avec succès", error: "Échec", cancelled: "Annulé" };
-  $("#job-step").textContent = states[job.state] || (p.label ? `${p.label} · étape ${p.step}/${p.steps}` : "Préparation…");
+  const states = { done: "Terminé avec succès", error: "L'opération a échoué", cancelled: "Opération annulée" };
+  $("#job-step").textContent = states[job.state] || (p.label ? `${p.label} · étape ${p.step} sur ${p.steps}` : "Préparation…");
   $("#job-rate").textContent = job.state === "running" ? rate(p.rate) : "—";
   $("#job-eta").textContent = job.state === "running" ? duration(p.eta) : "—";
-  $("#job-elapsed").textContent = duration(((job.finished || Date.now() / 1000) - job.started));
+  $("#job-elapsed").textContent = duration((job.finished || Date.now() / 1000) - job.started);
   $("#job-error").hidden = !job.error;
   $("#job-error").textContent = job.error || "";
   $("#job-cancel").hidden = job.state !== "running";
   $("#job-close").hidden = job.state === "running";
+  if (job.state === "error") $("#job-log").hidden = false;
+  renderSpark(job);
+  renderPlan(job);
+
   const log = $("#job-log");
-  const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 30;
   const sig = job.logs.length ? job.logs[job.logs.length - 1].t + job.logs.length : 0;
   if (shownJob !== job.id || shownLogs !== sig) {
+    const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 30;
     log.textContent = job.logs.map((l) => l.msg).join("\n");
     if (atBottom || shownJob !== job.id) log.scrollTop = log.scrollHeight;
     shownLogs = sig;
@@ -507,21 +570,22 @@ function renderJob() {
 }
 
 $("#job-cancel").onclick = async () => {
-  if (!confirm("Annuler l'opération en cours ? Le disque cible sera inutilisable tant qu'une nouvelle copie n'aura pas été faite.")) return;
+  if (!confirm("Annuler l'opération en cours ? Le disque cible restera inutilisable tant qu'une nouvelle copie n'aura pas été faite.")) return;
   try { await api("cancel", {}); } catch (e) { toast(e.message, true); }
 };
 $("#job-close").onclick = () => { dismissedJob = S.job.id; renderJob(); };
+$("#job-logtoggle").onclick = () => { const l = $("#job-log"); l.hidden = !l.hidden; l.scrollTop = l.scrollHeight; };
 
-/* ------------------------------------------------------------ alimentation */
-$("#btn-power").onclick = (e) => { e.stopPropagation(); $("#power-menu").hidden = !$("#power-menu").hidden; };
-document.addEventListener("click", () => ($("#power-menu").hidden = true));
+/* ------------------------------------------------------- navigation, divers */
+document.querySelectorAll(".nav a").forEach((a) => a.addEventListener("click", () => {
+  document.querySelectorAll(".nav a").forEach((x) => x.classList.toggle("on", x === a));
+}));
 document.querySelectorAll("[data-power]").forEach((b) => (b.onclick = async () => {
   const action = b.dataset.power;
   if (!confirm(action === "reboot" ? "Redémarrer le PC ?" : "Éteindre le PC ?")) return;
   try { await api("power", { action }); toast("À bientôt !"); } catch (e) { toast(e.message, true); }
 }));
 
-/* ------------------------------------------------------------------ accès */
 function showLogin() { $("#login").hidden = false; $("#login-code").focus(); }
 $("#login-form").onsubmit = async (e) => {
   e.preventDefault();
@@ -531,6 +595,7 @@ $("#login-form").onsubmit = async (e) => {
   catch (err) { $("#login-error").textContent = "Code incorrect"; }
 };
 
-/* ---------------------------------------------------------------- démarrage */
+tickClock();
+setInterval(tickClock, 15000);
 if (!code) showLogin();
 refresh().then(loop);
