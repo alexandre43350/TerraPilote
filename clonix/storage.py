@@ -6,7 +6,7 @@ import tempfile
 
 from clonix import disks as dk
 from clonix import image as im
-from clonix.errors import ClonixError
+from clonix.errors import ClonixError, CommandError
 
 # Les images peuvent être stockées sur la clé Clonix, dans une 2e partition
 # (modifiable) nommée ainsi. La partie « système » de la clé reste en lecture
@@ -23,7 +23,17 @@ def _prepare(runner, mountpoint):
 
 def mount_local(runner, device, mountpoint=im.DEFAULT_DIR):
     _prepare(runner, mountpoint)
-    runner.run(["mount", device, mountpoint])
+    try:
+        runner.run(["mount", device, mountpoint])
+    except CommandError as exc:
+        msg = (exc.stderr or "").lower()
+        if "busy" in msg or "already mounted" in msg:
+            raise ClonixError(
+                f"{device} est déjà utilisé par la clé de démarrage (Ventoy ?) et ne peut "
+                "pas servir de dépôt. Branchez une 2e clé USB, ou créez une partition "
+                "dédiée nommée CLONIX-DATA (voir le README)."
+            ) from exc
+        raise
 
 
 def mount_smb(runner, share, user=None, password=None, domain=None, mountpoint=im.DEFAULT_DIR):
@@ -66,14 +76,13 @@ def umount(runner, mountpoint=im.DEFAULT_DIR):
 
 
 def find_data_partition(runner):
-    """Partition « CLONIX-DATA » sur la clé Clonix (ou None)."""
-    live = dk.disk_of_mount(runner, dk.LIVE_MEDIUM)
-    if not live:
-        return None
-    live_real = os.path.realpath(live)
+    """Partition « CLONIX-DATA » (sur la clé Clonix ou une autre), ou None.
+
+    On cherche sur tous les disques : avec Ventoy, la clé de démarrage n'est pas
+    reconnue comme « medium live » (elle apparaît via un périphérique loop), donc
+    on se fie uniquement au nom CLONIX-DATA, assez spécifique.
+    """
     for d in dk.list_disks(runner):
-        if os.path.realpath(d.path) != live_real:
-            continue
         for p in d.partitions:
             if p.label == CLONIX_DATA_LABEL:
                 return p
