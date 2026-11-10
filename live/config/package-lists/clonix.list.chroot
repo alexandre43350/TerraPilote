@@ -9,6 +9,7 @@ parted
 dosfstools
 ntfs-3g
 chntpw
+python3-hivex
 openssl
 exfatprogs
 e2fsprogs

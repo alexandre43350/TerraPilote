@@ -143,7 +143,7 @@ def do_deploy(runner, image_dir):
     disk = pick_disk(runner, "Disque cible (sera effacé) :", image_dir, writable=True)
     confirm_erase(disk, f"Déploiement de l'image « {name} ».")
     os.system("clear")
-    ops.deploy(runner, ops.open_image(name, image_dir), disk.path, image_dir)
+    ops.deploy(runner, ops.open_image(name, image_dir), disk.path, image_dir, adapt_windows=True)
     pause()
 
 
@@ -172,7 +172,19 @@ def do_receive(runner, image_dir):
     disk = pick_disk(runner, "Disque cible (sera effacé) :", image_dir, writable=True)
     confirm_erase(disk, "Réception d'une image multicast.")
     os.system("clear")
-    mc.receive(runner, disk.path, interface=mc.default_interface())
+    mc.receive(runner, disk.path, interface=mc.default_interface(), adapt_windows=True)
+    pause()
+
+
+def do_winfix(runner, image_dir):
+    from clonix import winfix
+    disk = pick_disk(runner, "Disque du Windows qui plante au démarrage :", image_dir, writable=True)
+    if not yesno(f"Adapter le Windows de {disk.describe()} à ce PC ?\n\n"
+                 "Corrige l'écran bleu INACCESSIBLE_BOOT_DEVICE après un déploiement.\n"
+                 "Seul le registre de Windows est modifié."):
+        raise Back()
+    os.system("clear")
+    winfix.adapt(runner, disk.path)
     pause()
 
 
@@ -195,6 +207,7 @@ ACTIONS = [
     ("5", "Diffuser une image en multicast", do_send),
     ("6", "Recevoir une image multicast", do_receive),
     ("7", "Vérifier une image", do_verify),
+    ("8", "Réparer Windows (écran bleu au démarrage)", do_winfix),
 ]
 
 

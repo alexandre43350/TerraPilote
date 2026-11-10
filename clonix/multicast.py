@@ -73,7 +73,7 @@ def send(runner, name, receivers, image_dir=None, **opts):
     return manifest
 
 
-def receive(runner, disk_path, new_uuids=False, **opts):
+def receive(runner, disk_path, new_uuids=False, adapt_windows=False, **opts):
     """Reçoit et restaure une image.
 
     La confirmation doit être demandée AVANT l'appel : une fois la
@@ -92,7 +92,7 @@ def receive(runner, disk_path, new_uuids=False, **opts):
     source = None
     try:
         source = im.TarStreamSource(proc.stdout)
-        manifest = ops.deploy(runner, source, disk_path, new_uuids=new_uuids)
+        manifest = ops.deploy(runner, source, disk_path, new_uuids=new_uuids, adapt_windows=adapt_windows)
         while proc.stdout.read(1024 * 1024):  # fin du flux (bourrage tar)
             pass
     except BaseException:

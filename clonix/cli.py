@@ -63,7 +63,7 @@ def cmd_capture(runner, args):
 def cmd_deploy(runner, args):
     source = ops.open_image(args.name, args.dir)
     ops.deploy(
-        runner, source, args.disk, args.dir, new_uuids=args.new_uuids,
+        runner, source, args.disk, args.dir, new_uuids=args.new_uuids, adapt_windows=args.adapt,
         confirm=lambda m, d: ask_erase(d, f"déploiement de l'image « {m['name']} »", args.yes or runner.dry_run),
     )
     return 0
@@ -102,7 +102,20 @@ def cmd_mcast_recv(runner, args):
     disk = dk.get_disk(runner, args.disk)
     dk.check_writable_target(runner, disk)
     ask_erase(disk, "réception d'une image multicast", args.yes or runner.dry_run)
-    mc.receive(runner, disk.path, new_uuids=args.new_uuids, **_net_opts(args))
+    mc.receive(runner, disk.path, new_uuids=args.new_uuids, adapt_windows=args.adapt, **_net_opts(args))
+    return 0
+
+
+def cmd_winfix(runner, args):
+    from clonix import winfix
+    disk = dk.get_disk(runner, args.disk)
+    if not (args.yes or runner.dry_run):
+        print(f"\n  Clonix va adapter le Windows de {disk.describe()} à ce PC "
+              "(seul le registre de Windows est modifié).", file=sys.stderr)
+        print(f"  Tapez « {disk.name} » pour confirmer : ", end="", file=sys.stderr, flush=True)
+        if sys.stdin.readline().strip() != disk.name:
+            raise Cancelled("Opération annulée")
+    winfix.adapt(runner, disk.path)
     return 0
 
 
@@ -235,6 +248,15 @@ def build_parser():
         s.add_argument("--yes", action="store_true", help="ne pas demander de confirmation")
         s.add_argument("--new-uuids", action="store_true",
                        help="nouveaux identifiants de disque/partitions (déconseillé pour Windows, voir README)")
+
+    for s in (sp_deploy, sp5):
+        s.add_argument("--no-adapt", dest="adapt", action="store_false",
+                       help="ne pas adapter Windows au PC après le déploiement")
+
+    sp9 = add("winfix", cmd_winfix,
+              "réparer un Windows déployé qui plante (INACCESSIBLE_BOOT_DEVICE) : pilotes de disque")
+    sp9.add_argument("disk")
+    sp9.add_argument("--yes", action="store_true", help="ne pas demander de confirmation")
 
     sp6 = add("mount", cmd_mount, "monter le dépôt d'images")
     sp6.add_argument("kind", choices=["clonix", "local", "smb", "nfs", "sshfs"])

@@ -42,6 +42,7 @@ const ICONS = {
   check: P('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
   stack: P('<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>'),
   key: P('<circle cx="8" cy="8" r="4.5"/><path d="M11.2 11.2L20 20M17 17l2-2M14 14l2.5-2.5"/>'),
+  wrench: P('<path d="M14.7 6.3a4 4 0 0 0 5 5L21 13l-8 8-2.5-2.5 1.2-1.2a4 4 0 0 1-5-5L3 9.6 5.6 7l2.7 2.7a4 4 0 0 1 5-5z"/>'),
   win: P('<path d="M3 5l8-1v7H3zM13 3.7L21 3v8h-8zM3 13h8v6l-8-1zM13 13h8v8l-8-1z"/>'),
   tux: P('<path d="M12 3a3.5 3.5 0 0 1 3.5 3.5v3c2 1.5 3.5 4 3.5 7 0 1.5-3 3.5-7 3.5s-7-2-7-3.5c0-3 1.5-5.5 3.5-7v-3A3.5 3.5 0 0 1 12 3z"/><path d="M10 7.5h.01M14 7.5h.01"/>'),
 };
@@ -139,6 +140,7 @@ const ACTIONS = [
   { id: "recv", c: "c-cyan", title: "Recevoir", text: "Image depuis le réseau", run: () => wizardReceive(), small: true },
   { id: "verify", c: "", title: "Vérifier", text: "Intégrité SHA-256", run: () => wizardVerify(), small: true },
   { id: "key", c: "c-amber", title: "Mot de passe", text: "Réinitialiser l'admin d'un poste", run: () => wizardPassword(), small: true },
+  { id: "wrench", c: "c-blue", title: "Réparer Windows", text: "Écran bleu au démarrage (0x7B)", run: () => wizardWinfix(), small: true },
 ];
 
 function renderActions() {
@@ -386,12 +388,15 @@ function wizardDeploy(step = 0, sel = {}) {
   const d = S.disks.find((x) => x.path === sel.disk);
   let typed = "";
   const uu = h("input", { type: "checkbox" });
-  const go = h("button", { class: "btn danger", disabled: true, onclick: () => launch("deploy", { image: img.name, disk: d.path, confirm: typed, new_uuids: uu.checked }) }, "Effacer et déployer");
+  const adapt = h("input", { type: "checkbox" });
+  adapt.checked = true;
+  const go = h("button", { class: "btn danger", disabled: true, onclick: () => launch("deploy", { image: img.name, disk: d.path, confirm: typed, new_uuids: uu.checked, adapt: adapt.checked }) }, "Effacer et déployer");
   openModal(wizHead("Déployer une image", "Dernière vérification avant l'écriture.", 2, 3),
     h("div", { class: "arrow" }, imageCard(img), flow(), diskCard(d)),
     h("div", { style: "height:18px" }),
     dangerConfirm(d, (valid, v) => { typed = v; go.disabled = !valid; }),
-    h("label", { class: "check" }, uu, h("span", {}, "Générer de nouveaux identifiants de disque et de partitions (déconseillé pour Windows : préférez sysprep).")),
+    h("label", { class: "check" }, adapt, h("span", {}, "Adapter Windows à ce PC (recommandé). Évite l'écran bleu INACCESSIBLE_BOOT_DEVICE quand l'image vient d'un autre PC : Clonix active les pilotes de disque standard de Windows. Seule la copie déployée est modifiée.")),
+    h("label", { class: "check" }, uu, h("span", {}, "Générer de nouveaux identifiants de disque et de partitions (déconseillé pour Windows).")),
     h("div", { class: "wiz-foot" }, h("button", { class: "btn", onclick: () => wizardDeploy(1, sel) }, "Retour"), go));
 }
 
@@ -445,11 +450,32 @@ function wizardReceive(step = 0, sel = {}) {
   }
   const d = S.disks.find((x) => x.path === sel.disk);
   let typed = "";
-  const go = h("button", { class: "btn danger", disabled: true, onclick: () => launch("mcast-recv", { disk: d.path, confirm: typed }) }, "Effacer et attendre l'émetteur");
+  const adapt = h("input", { type: "checkbox" });
+  adapt.checked = true;
+  const go = h("button", { class: "btn danger", disabled: true, onclick: () => launch("mcast-recv", { disk: d.path, confirm: typed, adapt: adapt.checked }) }, "Effacer et attendre l'émetteur");
   openModal(wizHead("Recevoir une image multicast", `Interface réseau : ${S.interface || "aucune"}`, 1, 2),
     diskCard(d), h("div", { style: "height:18px" }),
     dangerConfirm(d, (valid, v) => { typed = v; go.disabled = !valid; }),
+    h("label", { class: "check" }, adapt, h("span", {}, "Adapter Windows à ce PC (recommandé). Évite l'écran bleu INACCESSIBLE_BOOT_DEVICE quand l'image vient d'un autre PC : Clonix active les pilotes de disque standard de Windows. Seule la copie déployée est modifiée.")),
     h("div", { class: "wiz-foot" }, h("button", { class: "btn", onclick: () => wizardReceive(0, sel) }, "Retour"), go));
+}
+
+function wizardWinfix(step = 0, sel = {}) {
+  if (step === 0) {
+    return openModal(wizHead("Réparer Windows", "Choisissez le disque du Windows qui affiche INACCESSIBLE_BOOT_DEVICE au démarrage.", 0, 2),
+      pickDisks(S.disks, sel.disk, (d) => wizardWinfix(0, { disk: d.path }), (d) => targetProblem(d) || (d.partitions.some((p) => p.fstype === "ntfs") ? null : "pas de Windows")),
+      wizFoot(null, { label: "Continuer", disabled: !sel.disk, fn: () => wizardWinfix(1, sel) }));
+  }
+  const d = S.disks.find((x) => x.path === sel.disk);
+  let typed = "";
+  const go = h("button", { class: "btn danger", disabled: true, onclick: () => launch("winfix", { disk: d.path, confirm: typed }) }, "Réparer le démarrage");
+  openModal(wizHead("Réparer Windows", "Clonix active les pilotes de disque standard de Windows (NVMe et SATA), comme l'option « Universal Restore » d'AOMEI ou Acronis.", 1, 2),
+    diskCard(d), h("div", { style: "height:18px" }),
+    dangerConfirm(d, (valid, v) => { typed = v; go.disabled = !valid; }, {
+      title: "Modification du registre de Windows",
+      text: `Seul le registre système du Windows de ${d.path} est modifié ; vos fichiers ne sont pas touchés. Si le PC utilise Intel VMD (réglage du BIOS), désactivez VMD en plus.`,
+    }),
+    h("div", { class: "wiz-foot" }, h("button", { class: "btn", onclick: () => wizardWinfix(0, sel) }, "Retour"), go));
 }
 
 function wizardVerify(sel = {}) {
@@ -576,7 +602,7 @@ async function mount(body) {
 
 /* ------------------------------------------------------------------ tâche */
 const CIRC = 2 * Math.PI * 52;
-const KINDS = { capture: "Capture", deploy: "Déploiement", clone: "Clonage", "mcast-send": "Diffusion multicast", "mcast-recv": "Réception multicast", verify: "Vérification", password: "Mot de passe" };
+const KINDS = { capture: "Capture", deploy: "Déploiement", clone: "Clonage", "mcast-send": "Diffusion multicast", "mcast-recv": "Réception multicast", verify: "Vérification", password: "Mot de passe", winfix: "Réparation Windows" };
 let shownJob = null, shownLogs = -1, history = [];
 
 function renderSpark(job) {

@@ -197,7 +197,8 @@ class App:
             image = body["image"]
             return self.start("deploy", f"Déploiement de « {image} » → {disk.path}",
                               lambda r: ops.deploy(r, ops.open_image(image, d), disk.path, d,
-                                                   new_uuids=bool(body.get("new_uuids"))))
+                                                   new_uuids=bool(body.get("new_uuids")),
+                                                   adapt_windows=bool(body.get("adapt", True))))
         if name == "clone":
             src = self._disk(body["source"], writable=False)
             dst = self._disk(body["target"], writable=True)
@@ -216,7 +217,8 @@ class App:
             disk = self._disk(body["disk"], writable=True)
             self._confirm(disk, body)
             return self.start("mcast-recv", f"Réception multicast → {disk.path}",
-                              lambda r: mc.receive(r, disk.path, interface=mc.default_interface()))
+                              lambda r: mc.receive(r, disk.path, interface=mc.default_interface(),
+                                                   adapt_windows=bool(body.get("adapt", True))))
         if name == "verify":
             image = body["image"]
 
@@ -227,6 +229,12 @@ class App:
                     raise ClonixError("Image corrompue : " + ", ".join(f"{n} ({why})" for n, why in bad))
                 r.log(f"Image intacte : {len(manifest['files'])} fichiers vérifiés.")
             return self.start("verify", f"Vérification de « {image} »", verify)
+        if name == "winfix":
+            from clonix import winfix
+            disk = self._disk(body["disk"], writable=True)
+            self._confirm(disk, body)
+            return self.start("winfix", f"Réparation du démarrage de Windows → {disk.path}",
+                              lambda r: winfix.adapt(r, disk.path))
         if name == "accounts":
             from clonix import password as pw
             disk = self._disk(body["disk"], writable=False)

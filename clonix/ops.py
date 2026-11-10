@@ -192,7 +192,7 @@ def _write_stream(runner, folder, manifest, name, cmds, total):
 # ------------------------------------------------------------------- déploiement
 
 
-def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=None):
+def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=None, adapt_windows=False):
     """Restaure une image (``DirSource`` ou ``TarStreamSource``) sur ``disk_path``.
 
     ``confirm(manifest, disk)`` est appelé après lecture du manifeste et avant
@@ -256,6 +256,12 @@ def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=N
                             total=rec["size"])
 
     runner.run(["sync"], check=False)
+    if adapt_windows and any(r.get("fstype") == "ntfs" for r in manifest["partitions"]):
+        from clonix import winfix
+        try:
+            winfix.adapt(runner, disk.path)
+        except ClonixError as exc:
+            runner.log(f"Adaptation de Windows impossible : {exc}")
     runner.log(f"Déploiement terminé sur {disk.path}")
     return manifest
 

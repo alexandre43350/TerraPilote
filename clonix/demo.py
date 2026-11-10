@@ -145,6 +145,10 @@ class DemoApp(App):
             return self._fake_multicast(name, body)
         if name == "accounts":
             return self._fake_accounts(body)
+        if name == "winfix":
+            return self._fake_winfix(body)
+        if name in ("deploy", "mcast-recv"):
+            body = dict(body, adapt=False)  # pas de vrai Windows dans la démo
         if name == "password":
             return self._fake_password(body)
         return super().action(name, body)
@@ -158,6 +162,23 @@ class DemoApp(App):
                                  {"name": "Invité", "admin": False}]}
         return {"os": "linux", "partition": disk.partitions[0].path if disk.partitions else disk.path,
                 "accounts": [{"name": "root", "admin": True}, {"name": "admin", "admin": False}]}
+
+    def _fake_winfix(self, body):
+        disk = self._disk(body["disk"], writable=True)
+        self._confirm(disk, body)
+
+        def work(r):
+            r.plan([("Réparation du démarrage de Windows", 1)])
+            r.start_step(0)
+            r.log(f"Adaptation de Windows ({disk.path}) à ce PC…")
+            time.sleep(1.2)
+            for line in ("ControlSet001\\Services\\stornvme : démarrage automatique",
+                         "ControlSet001\\Services\\storahci : démarrage automatique",
+                         "ControlSet001\\Services\\storahci : StartOverride supprimé"):
+                r.log("  " + line)
+                time.sleep(0.3)
+            r.emit(1.0)
+        return self.start("winfix", f"Réparation du démarrage de Windows → {disk.path}", work)
 
     def _fake_password(self, body):
         disk = self._disk(body["disk"], writable=True)
