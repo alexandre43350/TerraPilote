@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="tp-code" content="__TP_CODE__">
+<title>TerraPilote</title>
+<link rel="icon" href="logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <img src="logo.svg" alt="" width="34" height="34">
+    <div>
+      <strong>TerraPilote</strong>
+      <span id="version" class="muted"></span>
+    </div>
+  </div>
+  <div class="chips">
+    <button id="chip-storage" class="chip" title="Dépôt d'images"></button>
+    <span id="chip-net" class="chip static"></span>
+    <span id="chip-demo" class="chip warn static" hidden>Mode démo</span>
+  </div>
+  <div class="power">
+    <button class="icon-btn" id="btn-power" title="Alimentation" aria-label="Alimentation">
+      <svg viewBox="0 0 24 24"><path d="M12 3v9M6.3 6.3a8 8 0 1 0 11.4 0"/></svg>
+    </button>
+    <div class="menu" id="power-menu" hidden>
+      <button data-power="reboot">Redémarrer</button>
+      <button data-power="poweroff">Éteindre</button>
+    </div>
+  </div>
+</header>
+
+<main id="home">
+  <section class="actions" id="actions"></section>
+  <div class="columns">
+    <section class="panel">
+      <div class="panel-head"><h2>Disques</h2><span class="muted" id="disk-count"></span></div>
+      <div id="disks" class="disk-list"></div>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h2>Images</h2><span class="muted" id="image-count"></span></div>
+      <div id="images" class="image-list"></div>
+    </section>
+  </div>
+</main>
+
+<section id="job" class="job" hidden>
+  <div class="job-card">
+    <div class="ring-wrap">
+      <svg class="ring" viewBox="0 0 120 120">
+        <circle class="ring-bg" cx="60" cy="60" r="52"/>
+        <circle class="ring-fg" id="ring-fg" cx="60" cy="60" r="52"/>
+      </svg>
+      <div class="ring-text"><span id="job-pct">0</span><small>%</small></div>
+      <div class="ring-done" id="ring-done" hidden>
+        <svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+      </div>
+    </div>
+    <div class="job-info">
+      <h2 id="job-title"></h2>
+      <p id="job-step" class="muted"></p>
+      <div class="stats">
+        <div><small>Débit</small><strong id="job-rate">—</strong></div>
+        <div><small>Temps restant</small><strong id="job-eta">—</strong></div>
+        <div><small>Écoulé</small><strong id="job-elapsed">—</strong></div>
+      </div>
+      <div class="bar-label"><span>Étape en cours</span><span id="job-step-pct"></span></div>
+      <div class="bar"><div id="job-bar"></div></div>
+      <p id="job-error" class="error-box" hidden></p>
+      <div class="job-actions">
+        <button id="job-cancel" class="btn danger-ghost">Annuler</button>
+        <button id="job-close" class="btn primary" hidden>Retour à l'accueil</button>
+      </div>
+    </div>
+    <details class="console" open>
+      <summary>Journal</summary>
+      <pre id="job-log"></pre>
+    </details>
+  </div>
+</section>
+
+<div id="modal" class="modal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true">
+    <button class="icon-btn close" id="modal-close" aria-label="Fermer">
+      <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<div id="login" class="login" hidden>
+  <form class="login-card" id="login-form">
+    <img src="logo.svg" alt="" width="56" height="56">
+    <h1>TerraPilote</h1>
+    <p class="muted">Saisissez le code d'accès affiché sur l'écran du PC.</p>
+    <input id="login-code" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="000000">
+    <button class="btn primary" type="submit">Se connecter</button>
+    <p id="login-error" class="error-text"></p>
+  </form>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>

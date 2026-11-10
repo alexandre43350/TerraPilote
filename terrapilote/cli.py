@@ -128,6 +128,18 @@ def cmd_umount(runner, args):
     return 0
 
 
+def cmd_web(runner, args):
+    from terrapilote import web
+    if args.demo:
+        from terrapilote.demo import DemoApp
+        app = DemoApp()
+    else:
+        app = web.App(args.dir, dry_run=args.dry_run)
+    host = args.host or ("0.0.0.0" if args.remote else "127.0.0.1")
+    web.serve(app, host, args.port)
+    return 0
+
+
 def cmd_menu(runner, args):
     from terrapilote import tui
     return tui.main(runner, args.dir)
@@ -194,6 +206,13 @@ def build_parser():
     sp6.add_argument("--domain", help="domaine SMB")
 
     add("umount", cmd_umount, "démonter le dépôt d'images")
+
+    sp7 = add("web", cmd_web, "interface graphique (serveur web local)")
+    sp7.add_argument("--port", type=int, default=8470)
+    sp7.add_argument("--host", help="adresse d'écoute (défaut : 127.0.0.1)")
+    sp7.add_argument("--remote", action="store_true",
+                     help="accessible depuis le réseau (protégé par un code d'accès)")
+    sp7.add_argument("--demo", action="store_true", help="disques simulés, aucune écriture")
     return p
 
 
@@ -202,7 +221,8 @@ def main(argv=None):
     if not getattr(args, "func", None):
         args.func = cmd_menu
     runner = Runner(dry_run=args.dry_run, verbose=args.verbose)
-    if os.geteuid() != 0 and not args.dry_run and args.func not in (cmd_images, cmd_verify):
+    if (os.geteuid() != 0 and not args.dry_run and args.func not in (cmd_images, cmd_verify)
+            and not getattr(args, "demo", False)):
         print("terrapilote doit être lancé en root (sudo).", file=sys.stderr)
         return 2
     try:
