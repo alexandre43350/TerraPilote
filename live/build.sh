@@ -36,7 +36,7 @@ lb config \
     --compression gzip \
     --iso-application Clonix \
     --iso-volume CLONIX \
-    --bootappend-live "boot=live components quiet loglevel=3 locales=fr_FR.UTF-8 keyboard-layouts=fr timezone=Europe/Paris live-config.noautologin"
+    --bootappend-live "boot=live components quiet loglevel=3 modprobe.blacklist=pcspkr locales=fr_FR.UTF-8 keyboard-layouts=fr timezone=Europe/Paris live-config.noautologin"
 
 cp -a /src/live/config/. config/
 # Les droits d'exécution peuvent manquer si le dépôt vient de Windows.
