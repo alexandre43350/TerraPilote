@@ -4,6 +4,10 @@ set -e
 chmod 755 /usr/local/bin/clonix /usr/local/bin/clonix-web /usr/local/bin/clonix-kiosk
 systemctl enable clonix-web.service systemd-networkd.service systemd-resolved.service
 
+# Démarrage plus rapide : ne pas attendre que le réseau soit « en ligne » au
+# boot (il n'est utilisé qu'à la demande, pour le dépôt réseau et le multicast).
+systemctl mask systemd-networkd-wait-online.service 2>/dev/null || true
+
 # L'affichage plein écran (cage) refuse de tourner en root. La clé se connecte
 # donc automatiquement sous un compte sans privilèges « kiosk », qui lance le
 # navigateur. systemd-logind lui donne accès à l'écran et au clavier. Le travail

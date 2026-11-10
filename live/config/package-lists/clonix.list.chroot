@@ -45,7 +45,6 @@ wget
 cage
 firefox-esr
 xwayland
-firefox-esr-l10n-fr
 libgl1-mesa-dri
 libegl1
 libgles2
