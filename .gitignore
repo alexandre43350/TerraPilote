@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+/live/build/
+/live/out/

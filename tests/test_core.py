@@ -1,0 +1,320 @@
+import io
+import json
+import os
+import tempfile
+import unittest
+
+from terrapilote import disks as dk
+from terrapilote import fsclone as fc
+from terrapilote import image as im
+from terrapilote import ops
+from terrapilote import partitions as pt
+from terrapilote.cli import Cancelled, ask_erase
+from terrapilote.errors import CommandError, TerraPiloteError
+from terrapilote.runner import Runner
+
+from tests.fakes import DOS_DUMP, GIB, GPT_DUMP, FakeRunner, default_tree, lsblk_disk
+
+
+class DisksTest(unittest.TestCase):
+    def test_part_path(self):
+        self.assertEqual(dk.part_path("/dev/sda", 2), "/dev/sda2")
+        self.assertEqual(dk.part_path("/dev/nvme0n1", 1), "/dev/nvme0n1p1")
+        self.assertEqual(dk.part_path("/dev/mmcblk0", 3), "/dev/mmcblk0p3")
+        self.assertEqual(dk.part_number("/dev/nvme0n1p12"), 12)
+
+    def test_parse_lsblk(self):
+        tree = default_tree() + [{"name": "loop0", "type": "loop", "size": 1}, {"name": "zram0", "type": "disk"}]
+        disks = dk.parse_lsblk(json.dumps({"blockdevices": tree}))
+        self.assertEqual([d.path for d in disks], ["/dev/sda", "/dev/sdc", "/dev/sdd", "/dev/sde", "/dev/sdu"])
+        sda = disks[0]
+        self.assertEqual([p.number for p in sda.partitions], [1, 2, 3, 4])
+        self.assertEqual(sda.partitions[1].fstype, "ext4")
+        self.assertEqual(disks[3].mountpoints, ["/home"])
+        self.assertTrue(disks[4].removable)
+
+    def test_old_lsblk_string_values(self):
+        node = {"name": "sda", "type": "disk", "size": "1000", "rm": "1", "ro": "0", "log-sec": "4096"}
+        d = dk.parse_lsblk(json.dumps({"blockdevices": [node]}))[0]
+        self.assertEqual((d.size, d.removable, d.readonly, d.sector_size), (1000, True, False, 4096))
+
+    def test_mounted_lvm_child_marks_disk_busy(self):
+        part = {"name": "sda1", "type": "part", "size": 1, "children": [
+            {"name": "vg-root", "type": "lvm", "mountpoint": "/"}]}
+        d = dk.parse_lsblk(json.dumps({"blockdevices": [lsblk_disk("sda", 10, [part])]}))[0]
+        self.assertEqual(d.mountpoints, ["/"])
+
+    def test_live_usb_is_protected(self):
+        r = FakeRunner(live_disk="/dev/sdu")
+        self.assertIn("/dev/sdu", dk.protected_disks(r))
+        with self.assertRaisesRegex(TerraPiloteError, "clé USB"):
+            dk.check_writable_target(r, dk.get_disk(r, "/dev/sdu"))
+
+    def test_mounted_target_refused(self):
+        r = FakeRunner()
+        with self.assertRaisesRegex(TerraPiloteError, "utilisé"):
+            dk.check_writable_target(r, dk.get_disk(r, "/dev/sde"))
+
+
+class PartitionsTest(unittest.TestCase):
+    def test_parse_gpt(self):
+        t = pt.parse_dump(GPT_DUMP)
+        self.assertEqual(t.label, "gpt")
+        self.assertEqual([e.number for e in t.entries], [1, 2, 3, 4])
+        self.assertEqual(t.first_start, 2048)
+        self.assertEqual(t.required_bytes(), (23275520 + 1048576 + 33) * 512)
+        self.assertEqual(t.boot_area_bytes(), 2048 * 512)
+        self.assertEqual(t.boot_regions(2048 * 512), [(0, 440), (34 * 512, 2048 * 512)])
+
+    def test_parse_dos(self):
+        t = pt.parse_dump(DOS_DUMP)
+        self.assertEqual(t.label, "dos")
+        self.assertEqual([e.number for e in t.entries], [1, 2, 5])
+        self.assertEqual(t.boot_regions(2048 * 512), [(0, 440), (512, 2048 * 512)])
+
+    def test_unsupported_label(self):
+        with self.assertRaises(TerraPiloteError):
+            pt.parse_dump("label: sun\n")
+
+    def test_rewrite_for_nvme_target(self):
+        out = pt.rewrite_dump(GPT_DUMP, "/dev/nvme0n1")
+        self.assertNotIn("device:", out)
+        self.assertNotIn("last-lba", out)
+        self.assertIn("label-id: 11111111", out)
+        self.assertIn("/dev/nvme0n1p1 : start=        2048", out)
+        self.assertIn('name="EFI"', out)
+        self.assertIn("uuid=AAAAAAAA-0000-0000-0000-000000000002", out)
+
+    def test_rewrite_new_uuids(self):
+        out = pt.rewrite_dump(GPT_DUMP, "/dev/sdc", new_uuids=True)
+        self.assertNotIn("uuid=", out)
+        self.assertNotIn("label-id", out)
+        self.assertIn('type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, name="EFI"', out)
+        out = pt.rewrite_dump(DOS_DUMP, "/dev/sdc", new_uuids=True)
+        self.assertIn("/dev/sdc5 : start=     1028096, size=     4093952, type=83", out)
+        self.assertIn("type=7, bootable", out)
+
+    def test_write_table_checks_size(self):
+        r = FakeRunner()
+        small = dk.get_disk(r, "/dev/sdd")
+        with self.assertRaisesRegex(TerraPiloteError, "trop petit"):
+            pt.write_table(r, small, GPT_DUMP)
+        self.assertFalse(r.commands("run")[1:])  # rien n'a été écrit après lsblk
+
+
+class FsCloneTest(unittest.TestCase):
+    def test_plan_mode(self):
+        which = {"partclone.extfs", "partclone.ntfs"}.__contains__
+        P = lambda fs: dk.Partition("/dev/x1", 1, 1, fs)  # noqa: E731
+        self.assertEqual(fc.plan_mode(P("ext4"), "83", which), ("partclone", "partclone.extfs"))
+        self.assertEqual(fc.plan_mode(P("ntfs"), "7", which), ("partclone", "partclone.ntfs"))
+        self.assertEqual(fc.plan_mode(P("xfs"), "83", which), ("dd", None))  # outil absent
+        self.assertEqual(fc.plan_mode(P("BitLocker"), "7", which), ("dd", None))
+        self.assertEqual(fc.plan_mode(P(""), "", which), ("dd", None))
+        self.assertEqual(fc.plan_mode(P("swap"), "82", which), ("swap", None))
+        self.assertEqual(fc.plan_mode(P(""), "5", which), ("skip", None))
+
+    def test_commands(self):
+        self.assertEqual(fc.read_cmd("partclone", "partclone.ntfs", "/dev/sda2"),
+                         ["partclone.ntfs", "-c", "-s", "/dev/sda2", "-o", "-"])
+        self.assertEqual(fc.write_cmd("partclone", "partclone.ntfs", "/dev/sdb2"),
+                         ["partclone.ntfs", "-r", "-s", "-", "-o", "/dev/sdb2"])
+        self.assertEqual(fc.copy_cmd("partclone", "partclone.fat", "/dev/a1", "/dev/b1"),
+                         ["partclone.fat", "-b", "-s", "/dev/a1", "-o", "/dev/b1"])
+        self.assertEqual(fc.mkswap_cmd("/dev/b4", "u", "l"), ["mkswap", "-U", "u", "-L", "l", "/dev/b4"])
+
+
+class CaptureDeployTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = self.tmp.name
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _capture(self, **kw):
+        r = FakeRunner()
+        path, manifest = ops.capture(r, "/dev/sda", "poste-type", self.dir, description="test", **kw)
+        return r, path, manifest
+
+    def test_capture_writes_image(self):
+        r, path, m = self._capture()
+        self.assertEqual(path, os.path.join(self.dir, "poste-type"))
+        self.assertEqual(sorted(os.listdir(path)), sorted([
+            "terrapilote.json", "table.sfdisk", "boot.img",
+            "p1.partclone.zst", "p2.partclone.zst", "p3.dd.zst"]))
+        modes = [(p["number"], p["mode"]) for p in m["partitions"]]
+        self.assertEqual(modes, [(1, "partclone"), (2, "partclone"), (3, "dd"), (4, "swap")])
+        self.assertEqual(m["partitions"][3]["uuid"], "swap-uuid")
+        pipes = r.commands("pipe")
+        self.assertEqual(pipes[0], [["partclone.fat", "-c", "-s", "/dev/sda1", "-o", "-"],
+                                    ["zstd", "-q", "-T0", "-3", "-c"]])
+        self.assertEqual(pipes[2][0][:2], ["dd", "if=/dev/sda3"])
+        with open(os.path.join(path, "boot.img"), "rb") as f:
+            self.assertEqual(len(f.read()), 2048 * 512)
+        manifest, bad = im.verify(path)
+        self.assertEqual(bad, [])
+        self.assertEqual(manifest["source"]["serial"], "SN-sda")
+        self.assertEqual([n for n, _, _ in im.list_images(self.dir)], ["poste-type"])
+
+    def test_capture_refuses_mounted_source_and_existing_name(self):
+        r = FakeRunner(dumps={"/dev/sde": DOS_DUMP})
+        with self.assertRaisesRegex(TerraPiloteError, "montées"):
+            ops.capture(r, "/dev/sde", "x", self.dir)
+        self._capture()
+        with self.assertRaisesRegex(TerraPiloteError, "existe déjà"):
+            self._capture()
+
+    def test_failed_capture_leaves_no_image(self):
+        class Failing(FakeRunner):
+            def pipeline(self, cmds, **kw):
+                if "/dev/sda2" in cmds[0]:
+                    raise CommandError(cmds[0], 1)
+                return super().pipeline(cmds, **kw)
+
+        with self.assertRaises(CommandError):
+            ops.capture(Failing(), "/dev/sda", "rate", self.dir)
+        self.assertEqual(os.listdir(self.dir), [])
+
+    def test_deploy_to_larger_disk(self):
+        _, path, _ = self._capture()
+        r = FakeRunner()
+        asked = []
+        ops.deploy(r, im.DirSource(path), "/dev/sdc", self.dir, confirm=lambda m, d: asked.append(d.path))
+        self.assertEqual(asked, ["/dev/sdc"])
+        runs = r.commands("run")
+        self.assertIn(["wipefs", "--all", "--force", "/dev/sdc"], runs)
+        sfdisk = next(c for c in r.calls if c[0] == "run" and c[1][0] == "sfdisk" and "--dump" not in c[1])
+        self.assertIn("/dev/sdc1 : start=", sfdisk[2])
+        self.assertNotIn("last-lba", sfdisk[2])
+        self.assertIn(["mkswap", "-U", "swap-uuid", "-L", "sw", "/dev/sdc4"], runs)
+        writes = [(c[1], c[2], len(c[3])) for c in r.calls if c[0] == "write"]
+        self.assertEqual(writes, [("/dev/sdc", 0, 440), ("/dev/sdc", 34 * 512, (2048 - 34) * 512)])
+        pipes = r.commands("pipe")
+        self.assertEqual(pipes[0], [["zstd", "-q", "-d", "-c"],
+                                    ["partclone.fat", "-r", "-s", "-", "-o", "/dev/sdc1"]])
+        self.assertEqual(pipes[2][1][:2], ["dd", "of=/dev/sdc3"])
+        self.assertEqual(len(pipes), 3)
+
+    def test_deploy_refuses_small_disk_before_writing(self):
+        _, path, _ = self._capture()
+        r = FakeRunner()
+        with self.assertRaisesRegex(TerraPiloteError, "trop petit"):
+            ops.deploy(r, im.DirSource(path), "/dev/sdd", self.dir, confirm=lambda m, d: self.fail())
+        self.assertFalse([c for c in r.calls if c[0] in ("write", "pipe")])
+
+    def test_deploy_cancel_writes_nothing(self):
+        _, path, _ = self._capture()
+        r = FakeRunner()
+
+        def cancel(m, d):
+            raise Cancelled("non")
+
+        with self.assertRaises(Cancelled):
+            ops.deploy(r, im.DirSource(path), "/dev/sdc", self.dir, confirm=cancel)
+        self.assertEqual({c[1][0] for c in r.calls if c[0] == "run"}, {"lsblk", "findmnt"})
+        self.assertFalse([c for c in r.calls if c[0] in ("write", "pipe")])
+
+    def test_deploy_detects_corruption(self):
+        _, path, _ = self._capture()
+        with open(os.path.join(path, "p2.partclone.zst"), "ab") as f:
+            f.write(b"!")
+        _, bad = im.verify(path)
+        self.assertEqual(bad, [("p2.partclone.zst", "somme SHA-256 différente")])
+        with self.assertRaisesRegex(TerraPiloteError, "corrompue"):
+            ops.deploy(FakeRunner(), im.DirSource(path), "/dev/sdc", self.dir)
+
+    def test_deploy_missing_partclone_tool(self):
+        _, path, _ = self._capture()
+        r = FakeRunner(tools=["zstd"])
+        with self.assertRaisesRegex(TerraPiloteError, "partclone.extfs, partclone.fat"):
+            ops.deploy(r, im.DirSource(path), "/dev/sdc", self.dir)
+        self.assertFalse([c for c in r.calls if c[0] in ("write", "pipe")])
+
+    def test_multicast_tar_stream_roundtrip(self):
+        _, path, manifest = self._capture()
+        buf = io.BytesIO()
+        im.write_tar_stream(path, manifest, buf)
+        buf.seek(0)
+        r = FakeRunner()
+        ops.deploy(r, im.TarStreamSource(buf), "/dev/sdc", None)
+        self.assertEqual(len(r.commands("pipe")), 3)
+        self.assertEqual(r.last_fed, b"DATA:dd if=/dev/sda3 bs=4M status=progress")
+
+    def test_tar_stream_wrong_order(self):
+        _, path, manifest = self._capture()
+        buf = io.BytesIO()
+        manifest = dict(manifest, partitions=list(reversed(manifest["partitions"])))
+        im.write_tar_stream(path, manifest, buf)
+        buf.seek(0)
+        with self.assertRaisesRegex(TerraPiloteError, "Flux inattendu"):
+            ops.deploy(FakeRunner(), im.TarStreamSource(buf), "/dev/sdc", None)
+
+    def test_dry_run_writes_nothing(self):
+        r = FakeRunner(dry_run=True)
+        ops.capture(r, "/dev/sda", "essai", self.dir)
+        self.assertEqual(os.listdir(self.dir), [])
+
+
+class CloneTest(unittest.TestCase):
+    def test_clone(self):
+        r = FakeRunner()
+        ops.clone(r, "/dev/sda", "/dev/sdc", confirm=lambda s, d: None)
+        pipes = r.commands("pipe")
+        self.assertEqual(pipes, [
+            [["partclone.fat", "-b", "-s", "/dev/sda1", "-o", "/dev/sdc1"]],
+            [["partclone.extfs", "-b", "-s", "/dev/sda2", "-o", "/dev/sdc2"]],
+            [["dd", "if=/dev/sda3", "of=/dev/sdc3", "bs=4M", "conv=fsync", "status=progress"]],
+        ])
+        self.assertIn(["mkswap", "-U", "swap-uuid", "-L", "sw", "/dev/sdc4"], r.commands("run"))
+
+    def test_clone_same_disk_and_small_target(self):
+        r = FakeRunner()
+        with self.assertRaisesRegex(TerraPiloteError, "identiques"):
+            ops.clone(r, "/dev/sda", "/dev/sda")
+        with self.assertRaisesRegex(TerraPiloteError, "plus petit"):
+            ops.clone(r, "/dev/sda", "/dev/sdd")
+
+
+class RunnerTest(unittest.TestCase):
+    def test_pipeline_feed_and_sink(self):
+        r = Runner()
+        out = io.BytesIO()
+        payload = os.urandom(3 * 1024 * 1024) * 3  # plus grand que les tampons de tube
+        n = r.pipeline([["gzip", "-1", "-c"], ["gzip", "-d", "-c"]], feed=io.BytesIO(payload), sink=out)
+        self.assertEqual(n, len(payload))
+        self.assertEqual(out.getvalue(), payload)
+
+    def test_pipeline_failure(self):
+        with self.assertRaises(CommandError) as ctx:
+            Runner().pipeline([["sh", "-c", "exit 3"], ["cat"]], sink=io.BytesIO())
+        self.assertEqual(ctx.exception.returncode, 3)
+
+    def test_feed_error_propagates(self):
+        _ = im  # VerifyingReader lève une erreur en fin de lecture
+
+        class Bad(io.BytesIO):
+            def read(self, n=-1):
+                buf = super().read(n)
+                if not buf:
+                    raise TerraPiloteError("somme")
+                return buf
+
+        with self.assertRaisesRegex(TerraPiloteError, "somme"):
+            Runner().pipeline([["cat"]], feed=Bad(b"abc"), sink=io.BytesIO())
+
+    def test_missing_tool(self):
+        with self.assertRaisesRegex(TerraPiloteError, "introuvable"):
+            Runner().run(["outil-qui-n-existe-pas"])
+
+
+class ConfirmTest(unittest.TestCase):
+    def test_ask_erase(self):
+        d = dk.Disk(path="/dev/sdc", size=32 * GIB)
+        ask_erase(d, "test", stream_in=io.StringIO("sdc\n"), stream_out=io.StringIO())
+        with self.assertRaises(Cancelled):
+            ask_erase(d, "test", stream_in=io.StringIO("oui\n"), stream_out=io.StringIO())
+
+
+if __name__ == "__main__":
+    unittest.main()
