@@ -8,6 +8,7 @@ tous les PC, quel que soit leur nombre.
 
 import os
 import subprocess
+import time
 
 from terrapilote import disks as dk
 from terrapilote import image as im
@@ -17,9 +18,12 @@ from terrapilote.errors import CommandError, TerraPiloteError
 DEFAULT_PORTBASE = 9000
 
 
-def sender_cmd(receivers, interface=None, portbase=DEFAULT_PORTBASE, max_wait=600, max_bitrate=None):
+def sender_cmd(receivers, interface=None, portbase=DEFAULT_PORTBASE, max_wait=600, max_bitrate=None,
+               full_duplex=True):
     cmd = ["udp-sender", "--nokbd", "--portbase", str(portbase),
            "--min-receivers", str(receivers), "--max-wait", str(max_wait)]
+    if full_duplex:
+        cmd.append("--full-duplex")  # réseaux commutés (switch) : pas d'attente inutile
     if interface:
         cmd += ["--interface", interface]
     if max_bitrate:
@@ -47,9 +51,12 @@ def send(runner, name, receivers, image_dir=None, **opts):
     if runner.dry_run:
         runner.log(f"[dry-run] tar {path} | {' '.join(cmd)}")
         return manifest
+    total = sum(f["size"] for f in manifest["files"].values())
+    runner.plan([(f"Diffusion de « {manifest['name']} »", total)])
+    runner.start_step(0)
     proc = runner.popen(cmd, stdin=subprocess.PIPE)
     try:
-        im.write_tar_stream(path, manifest, proc.stdin)
+        im.write_tar_stream(path, manifest, _Counting(proc.stdin, runner, total))
     except BrokenPipeError:
         pass
     finally:
@@ -58,6 +65,8 @@ def send(runner, name, receivers, image_dir=None, **opts):
         except BrokenPipeError:
             pass
         proc.wait()
+        runner.release(proc)
+    runner.check_cancel()
     if proc.returncode != 0:
         raise CommandError(cmd, proc.returncode)
     runner.log("Envoi multicast terminé")
@@ -97,7 +106,29 @@ def receive(runner, disk_path, new_uuids=False, **opts):
                 pass
         proc.stdout.close()
         proc.wait()
+        runner.release(proc)
     return manifest
+
+
+class _Counting:
+    """Compte les octets envoyés pour la barre de progression de l'émetteur."""
+
+    def __init__(self, raw, runner, total):
+        self.raw, self.runner, self.total = raw, runner, max(total, 1)
+        self.done = 0
+        self.last = 0.0
+
+    def write(self, buf):
+        n = self.raw.write(buf)
+        self.done += len(buf)
+        now = time.monotonic()
+        if now - self.last > 0.5:
+            self.last = now
+            self.runner.emit(min(self.done / self.total, 1.0), done_bytes=self.done)
+        return n
+
+    def flush(self):
+        self.raw.flush()
 
 
 def default_interface():

@@ -160,6 +160,11 @@ def disk_of_mount(runner, target):
     return None
 
 
+def fstype_of_mount(runner, target):
+    out = runner.run(["findmnt", "-n", "-o", "FSTYPE", "--target", target], readonly=True, check=False)
+    return out.strip().splitlines()[0] if out.strip() else ""
+
+
 def protected_disks(runner, image_dir=None):
     """Disques sur lesquels TerraPilote ne doit jamais écrire."""
     protected = {}

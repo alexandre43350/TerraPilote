@@ -74,6 +74,11 @@ class FakeRunner(Runner):
         self.live_disk = live_disk
         self.calls = []  # ("run", argv, input) / ("pipe", cmds) / ("write", path, offset, data)
         self.disk_bytes = {}  # contenu lu par read_at
+        self.mount_fstype = "ext4"
+        self.help_text = {}  # outil -> sortie de --help simulée
+
+    def supports(self, tool, option):
+        return option in self.help_text.get(tool, "")
 
     # -- outils
     def which(self, tool):
@@ -93,6 +98,8 @@ class FakeRunner(Runner):
             return f"{src} part\n{disk} disk\n"
         if argv[0] == "findmnt":
             target = argv[-1]
+            if "FSTYPE" in argv:
+                return self.mount_fstype + "\n"
             if target == "/run/live/medium" and self.live_disk:
                 return f"{self.live_disk}1\n"
             return "tmpfs\n"
@@ -100,7 +107,7 @@ class FakeRunner(Runner):
             return self.dumps[argv[2]]
         return ""
 
-    def pipeline(self, cmds, *, feed=None, sink=None):
+    def pipeline(self, cmds, *, feed=None, sink=None, total=None):
         cmds = [[str(a) for a in c] for c in cmds]
         self.calls.append(("pipe", cmds))
         if self.dry_run:

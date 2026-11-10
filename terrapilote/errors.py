@@ -2,6 +2,10 @@ class TerraPiloteError(Exception):
     """Erreur attendue, affichée à l'utilisateur sans trace Python."""
 
 
+class Cancelled(TerraPiloteError):
+    """Opération annulée par l'utilisateur."""
+
+
 class CommandError(TerraPiloteError):
     def __init__(self, argv, returncode, stderr=""):
         self.argv = list(argv)

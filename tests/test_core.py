@@ -119,8 +119,8 @@ class FsCloneTest(unittest.TestCase):
                          ["partclone.ntfs", "-c", "-s", "/dev/sda2", "-o", "-"])
         self.assertEqual(fc.write_cmd("partclone", "partclone.ntfs", "/dev/sdb2"),
                          ["partclone.ntfs", "-r", "-s", "-", "-o", "/dev/sdb2"])
-        self.assertEqual(fc.copy_cmd("partclone", "partclone.fat", "/dev/a1", "/dev/b1"),
-                         ["partclone.fat", "-b", "-s", "/dev/a1", "-o", "/dev/b1"])
+        self.assertEqual(fc.copy_cmds("partclone", "partclone.fat", "/dev/a1", "/dev/b1", ["-z", "9"]),
+                         [["partclone.fat", "-b", "-z", "9", "-s", "/dev/a1", "-o", "/dev/b1"]])
         self.assertEqual(fc.mkswap_cmd("/dev/b4", "u", "l"), ["mkswap", "-U", "u", "-L", "l", "/dev/b4"])
 
 
@@ -148,7 +148,7 @@ class CaptureDeployTest(unittest.TestCase):
         self.assertEqual(m["partitions"][3]["uuid"], "swap-uuid")
         pipes = r.commands("pipe")
         self.assertEqual(pipes[0], [["partclone.fat", "-c", "-s", "/dev/sda1", "-o", "-"],
-                                    ["zstd", "-q", "-T0", "-3", "-c"]])
+                                    ["zstd", "-q", "-T0", "-1", "-c"]])
         self.assertEqual(pipes[2][0][:2], ["dd", "if=/dev/sda3"])
         with open(os.path.join(path, "boot.img"), "rb") as f:
             self.assertEqual(len(f.read()), 2048 * 512)
@@ -239,7 +239,7 @@ class CaptureDeployTest(unittest.TestCase):
         r = FakeRunner()
         ops.deploy(r, im.TarStreamSource(buf), "/dev/sdc", None)
         self.assertEqual(len(r.commands("pipe")), 3)
-        self.assertEqual(r.last_fed, b"DATA:dd if=/dev/sda3 bs=4M status=progress")
+        self.assertEqual(r.last_fed, b"DATA:dd if=/dev/sda3 bs=16M status=progress")
 
     def test_tar_stream_wrong_order(self):
         _, path, manifest = self._capture()
@@ -256,6 +256,80 @@ class CaptureDeployTest(unittest.TestCase):
         self.assertEqual(os.listdir(self.dir), [])
 
 
+class SpeedTest(unittest.TestCase):
+    def test_level_auto(self):
+        self.assertEqual(fc.choose_level("auto", "ext4"), 1)
+        self.assertEqual(fc.choose_level("auto", "cifs"), "adapt")
+        self.assertEqual(fc.choose_level("5", "cifs"), "5")
+        self.assertEqual(fc.compress_cmd("zstd", "adapt"), ["zstd", "-q", "-T0", "--adapt=min=1,max=9", "-c"])
+
+    def test_partclone_flags_only_when_supported(self):
+        new = {"partclone.extfs": "-z, --buffer_size SIZE\n -a, --checksum-mode=MODE"}.get
+        sup = lambda tool, opt: opt in (new(tool) or "")  # noqa: E731
+        self.assertEqual(fc.partclone_flags(sup, "partclone.extfs", capture=True),
+                         ["-z", str(fc.PARTCLONE_BUFFER), "-a0"])
+        self.assertEqual(fc.partclone_flags(sup, "partclone.extfs"), ["-z", str(fc.PARTCLONE_BUFFER)])
+        self.assertEqual(fc.partclone_flags(sup, "partclone.ntfs", capture=True), [])
+
+    def test_network_store_uses_adaptive_level(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        r = FakeRunner()
+        r.mount_fstype = "cifs"
+        r.help_text["partclone.extfs"] = "--buffer_size --checksum-mode"
+        ops.capture(r, "/dev/sda", "net", tmp.name)
+        pipes = r.commands("pipe")
+        self.assertEqual(pipes[1][0], ["partclone.extfs", "-c", "-z", str(fc.PARTCLONE_BUFFER), "-a0",
+                                       "-s", "/dev/sda2", "-o", "-"])
+        self.assertIn("--adapt=min=1,max=9", pipes[1][1])
+
+    def test_progress_parsers(self):
+        from terrapilote.runner import parse_dd, parse_partclone
+        frac, rate, left = parse_partclone(
+            "Elapsed: 00:00:10, Remaining: 00:01:05, Completed:  13.37%,   6.00GB/min,")
+        self.assertAlmostEqual(frac, 0.1337)
+        self.assertAlmostEqual(rate, 6 * 1024 ** 3 / 60)
+        self.assertEqual(left, 65)
+        self.assertEqual(parse_partclone("Total Time: 00:00:03, Ave. Rate: 1.3GB/min, 100.00% completed!"), None)
+        self.assertEqual(parse_dd("1073741824 bytes (1.1 GB, 1.0 GiB) copied, 2.5 s, 430 MB/s"), 1073741824)
+        self.assertIsNone(parse_dd("8+0 records in"))
+
+    def test_real_progress_and_overall(self):
+        events = []
+
+        class Rec:
+            def log(self, m):
+                pass
+
+            def progress(self, p):
+                events.append(p)
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        tool = os.path.join(tmp.name, "partclone.fake")
+        with open(tool, "w") as f:
+            f.write("#!/bin/sh\n"
+                    "printf 'Partclone v0.3\\n' >&2\n"
+                    "printf 'Elapsed: 00:00:01, Remaining: 00:00:01, Completed:  50.00%%,  1.00GB/min,\\r' >&2\n"
+                    "printf '\\033[AElapsed: 00:00:02, Remaining: 00:00:00, Completed: 100.00%%,  1.00GB/min,\\n' >&2\n")
+        os.chmod(tool, 0o755)
+        r = Runner(reporter=Rec())
+        r.plan([("a", 100), ("b", 300)])
+        r.start_step(1)
+        r.pipeline([[tool]])
+        self.assertEqual([round(e["overall"], 3) for e in events], [0.25, 0.625, 1.0])
+        self.assertEqual(events[-1]["label"], "b")
+        self.assertEqual(events[-1]["step"], 2)
+
+    def test_cancel_kills_pipeline(self):
+        import threading
+        r = Runner()
+        threading.Timer(0.3, r.cancel).start()
+        from terrapilote.errors import Cancelled
+        with self.assertRaises(Cancelled):
+            r.pipeline([["sleep", "30"]])
+
+
 class CloneTest(unittest.TestCase):
     def test_clone(self):
         r = FakeRunner()
@@ -264,7 +338,8 @@ class CloneTest(unittest.TestCase):
         self.assertEqual(pipes, [
             [["partclone.fat", "-b", "-s", "/dev/sda1", "-o", "/dev/sdc1"]],
             [["partclone.extfs", "-b", "-s", "/dev/sda2", "-o", "/dev/sdc2"]],
-            [["dd", "if=/dev/sda3", "of=/dev/sdc3", "bs=4M", "conv=fsync", "status=progress"]],
+            [["dd", "if=/dev/sda3", "bs=16M", "status=progress"],
+             ["dd", "of=/dev/sdc3", "bs=16M", "iflag=fullblock", "conv=fsync"]],
         ])
         self.assertIn(["mkswap", "-U", "swap-uuid", "-L", "sw", "/dev/sdc4"], r.commands("run"))
 

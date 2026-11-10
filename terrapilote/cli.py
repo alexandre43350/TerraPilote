@@ -9,12 +9,8 @@ from terrapilote import disks as dk
 from terrapilote import image as im
 from terrapilote import multicast as mc
 from terrapilote import ops, storage
-from terrapilote.errors import TerraPiloteError
+from terrapilote.errors import Cancelled, TerraPiloteError
 from terrapilote.runner import Runner
-
-
-class Cancelled(TerraPiloteError):
-    pass
 
 
 def ask_erase(disk, what, assume_yes=False, stream_in=None, stream_out=None):
@@ -158,7 +154,8 @@ def build_parser():
     sp.add_argument("disk", help="disque source, ex. /dev/sda")
     sp.add_argument("name", help="nom de l'image")
     sp.add_argument("--compression", choices=["zstd", "gzip", "none"], default="zstd")
-    sp.add_argument("--level", type=int, default=3, help="niveau de compression (défaut : 3)")
+    sp.add_argument("--level", default="auto",
+                    help="niveau zstd 1-19, « adapt », ou « auto » (défaut : 1 en local, adaptatif sur le réseau)")
     sp.add_argument("--description", default="")
 
     sp_deploy = add("deploy", cmd_deploy, "restaurer une image sur un disque")

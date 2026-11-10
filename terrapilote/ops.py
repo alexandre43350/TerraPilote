@@ -40,7 +40,12 @@ def plan_partitions(runner, disk, table_text):
 # --------------------------------------------------------------------- capture
 
 
-def capture(runner, disk_path, name, image_dir=None, compression="zstd", level=3, description=""):
+def _data_steps(plan, sector_size):
+    return [(f"Partition {e.number} ({p.fstype or 'brute'})", e.size * sector_size)
+            for e, p, mode, _ in plan if mode in ("partclone", "dd")]
+
+
+def capture(runner, disk_path, name, image_dir=None, compression="zstd", level="auto", description=""):
     disk = dk.get_disk(runner, disk_path)
     dk.check_readable_source(disk)
     dest = im.resolve(name, image_dir)
@@ -49,12 +54,16 @@ def capture(runner, disk_path, name, image_dir=None, compression="zstd", level=3
     parent = os.path.dirname(dest)
     if os.path.isdir(parent) and dk.disk_of_mount(runner, parent) == disk.path:
         raise TerraPiloteError("Le dépôt d'images est sur le disque à capturer")
-    if fc.compress_cmd(compression, level) and not runner.which(fc.compress_cmd(compression, level)[0]):
+    level = fc.choose_level(level, dk.fstype_of_mount(runner, parent) if os.path.isdir(parent) else "")
+    comp = fc.compress_cmd(compression, level)
+    if comp and not runner.which(comp[0]):
         raise TerraPiloteError(f"Compresseur introuvable : {compression}")
 
     table_text = pt.dump_table(runner, disk.path)
     table, plan = plan_partitions(runner, disk, table_text)
     manifest = im.new_manifest(os.path.basename(dest), disk, table, description)
+    runner.plan(_data_steps(plan, table.sector_size))
+    step = 0
 
     runner.log(f"Capture de {disk.describe()} vers {dest}")
     tmp = dest + ".partial"
@@ -83,11 +92,13 @@ def capture(runner, disk_path, name, image_dir=None, compression="zstd", level=3
                 rec["file"] = f"p{entry.number}.{mode}{ext}"
                 rec["compression"] = compression
                 runner.log(f"→ partition {entry.number} ({part.fstype or 'brute'}) : {mode}")
-                cmds = [fc.read_cmd(mode, tool, part.path)]
-                comp = fc.compress_cmd(compression, level)
+                flags = fc.partclone_flags(runner.supports, tool, capture=True) if tool else ()
+                cmds = [fc.read_cmd(mode, tool, part.path, flags)]
                 if comp:
                     cmds.append(comp)
-                _write_stream(runner, tmp, manifest, rec["file"], cmds)
+                runner.start_step(step)
+                step += 1
+                _write_stream(runner, tmp, manifest, rec["file"], cmds, rec["size"])
             else:
                 runner.log(f"→ partition {entry.number} ({part.fstype or 'étendue'}) : {mode}")
             manifest["partitions"].append(rec)
@@ -115,13 +126,13 @@ def _write_small(runner, folder, manifest, name, data):
     manifest["files"][name] = w.record()
 
 
-def _write_stream(runner, folder, manifest, name, cmds):
+def _write_stream(runner, folder, manifest, name, cmds, total):
     if runner.dry_run:
-        runner.pipeline(cmds, sink=io.BytesIO())
+        runner.pipeline(cmds, sink=io.BytesIO(), total=total)
         return
     with open(os.path.join(folder, name), "wb") as f:
         w = im.HashingWriter(f)
-        runner.pipeline(cmds, sink=w)
+        runner.pipeline(cmds, sink=w, total=total)
         f.flush()
         os.fsync(f.fileno())
     manifest["files"][name] = w.record()
@@ -169,6 +180,9 @@ def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=N
     pt.write_table(runner, disk, table_text, new_uuids=new_uuids)
     pt.restore_boot_area(runner, disk.path, table, boot)
 
+    runner.plan([(f"Partition {r['number']} ({r['fstype'] or 'brute'})", r["size"])
+                 for r in manifest["partitions"] if r.get("file")])
+    step = 0
     for rec in manifest["partitions"]:
         target = dk.part_path(disk.path, rec["number"])
         mode = rec["mode"]
@@ -182,9 +196,13 @@ def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=N
         decomp = fc.decompress_cmd(rec["compression"])
         if decomp:
             cmds.append(decomp)
-        cmds.append(fc.write_cmd(mode, rec["tool"], target))
+        flags = fc.partclone_flags(runner.supports, rec["tool"]) if mode == "partclone" else ()
+        cmds.append(fc.write_cmd(mode, rec["tool"], target, flags))
+        runner.start_step(step)
+        step += 1
         with source.open(rec["file"]) as f:
-            runner.pipeline(cmds, feed=im.VerifyingReader(f, rec["file"], files.get(rec["file"])))
+            runner.pipeline(cmds, feed=im.VerifyingReader(f, rec["file"], files.get(rec["file"])),
+                            total=rec["size"])
 
     runner.run(["sync"], check=False)
     runner.log(f"Déploiement terminé sur {disk.path}")
@@ -221,12 +239,18 @@ def clone(runner, src_path, dst_path, new_uuids=False, confirm=None):
     runner.log(f"Clonage {src.describe()} → {dst.describe()}")
     pt.write_table(runner, dst, table_text, new_uuids=new_uuids)
     pt.restore_boot_area(runner, dst.path, table, boot)
+    runner.plan(_data_steps(plan, table.sector_size))
+    step = 0
     for entry, part, mode, tool in plan:
         target = dk.part_path(dst.path, entry.number)
         runner.log(f"→ partition {entry.number} ({part.fstype or mode}) : {mode}")
         if mode == "swap":
             runner.run(fc.mkswap_cmd(target, part.uuid, part.label))
         elif mode != "skip":
-            runner.pipeline([fc.copy_cmd(mode, tool, part.path, target)])
+            flags = fc.partclone_flags(runner.supports, tool) if tool else ()
+            runner.start_step(step)
+            step += 1
+            runner.pipeline(fc.copy_cmds(mode, tool, part.path, target, flags),
+                            total=entry.size * table.sector_size)
     runner.run(["sync"], check=False)
     runner.log(f"Clonage terminé : {dst.path}")

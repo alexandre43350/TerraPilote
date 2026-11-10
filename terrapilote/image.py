@@ -25,6 +25,7 @@ MANIFEST = "terrapilote.json"
 TABLE = "table.sfdisk"
 BOOT = "boot.img"
 FORMAT = 1
+STREAM_BUF = 4 * 1024 * 1024  # gros blocs : moins d'appels en Python
 DEFAULT_DIR = os.environ.get("TERRAPILOTE_IMAGES", "/srv/terrapilote/images")
 
 
@@ -154,7 +155,7 @@ class TarStreamSource:
     """Image reçue en flux tar (multicast) : les fichiers arrivent dans l'ordre."""
 
     def __init__(self, fileobj):
-        self.tar = tarfile.open(fileobj=fileobj, mode="r|")
+        self.tar = tarfile.open(fileobj=fileobj, mode="r|", bufsize=STREAM_BUF)
         self.members = iter(self.tar)
 
     def open(self, name):
@@ -171,7 +172,7 @@ class TarStreamSource:
 
 def write_tar_stream(image_path, manifest, fileobj):
     """Écrit l'image en flux tar, dans l'ordre attendu par ``TarStreamSource``."""
-    with tarfile.open(fileobj=fileobj, mode="w|", format=tarfile.PAX_FORMAT) as tar:
+    with tarfile.open(fileobj=fileobj, mode="w|", format=tarfile.PAX_FORMAT, bufsize=STREAM_BUF) as tar:
         for name in stream_order(manifest):
             tar.add(os.path.join(image_path, name), arcname=name, recursive=False)
 
