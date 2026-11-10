@@ -269,7 +269,7 @@ def _free_space(path):
     try:
         st = os.statvfs(path)
         return st.f_bavail * st.f_frsize
-    except OSError:
+    except (OSError, AttributeError):  # statvfs n'existe pas sous Windows
         return None
 
 

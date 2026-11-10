@@ -221,7 +221,7 @@ def main(argv=None):
     if not getattr(args, "func", None):
         args.func = cmd_menu
     runner = Runner(dry_run=args.dry_run, verbose=args.verbose)
-    if (os.geteuid() != 0 and not args.dry_run and args.func not in (cmd_images, cmd_verify)
+    if (hasattr(os, "geteuid") and os.geteuid() != 0 and not args.dry_run and args.func not in (cmd_images, cmd_verify)
             and not getattr(args, "demo", False)):
         print("terrapilote doit être lancé en root (sudo).", file=sys.stderr)
         return 2

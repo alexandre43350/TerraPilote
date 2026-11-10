@@ -63,7 +63,7 @@ Pour essayer l'interface sur n'importe quel ordinateur, sans toucher aux disques
 python3 -m terrapilote web --demo
 ```
 
-puis ouvrir <http://127.0.0.1:8470/>.
+(sous Windows : `py -m terrapilote web --demo`), puis ouvrir <http://127.0.0.1:8470/>.
 
 ### Accès depuis un autre PC
 
@@ -105,6 +105,25 @@ sudo dd if=live/out/terrapilote-AAAAMMJJ.iso of=/dev/rdiskN bs=4m
 La clé est basée sur Debian 12 (bookworm) et contient partclone, zstd, udpcast,
 les outils NTFS/FAT/ext/Btrfs/XFS, les clients SMB/NFS/SSH et les pilotes réseau
 courants.
+
+### Depuis Windows
+
+1. Installez [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+   (il active WSL2 au premier lancement, un redémarrage peut être demandé), puis
+   lancez-le.
+2. Dans PowerShell, depuis le dossier du projet :
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File live\build.ps1
+   ```
+
+3. Écrivez `live\out\terrapilote-AAAAMMJJ.iso` sur la clé avec
+   [Rufus](https://rufus.ie/) : choisissez la clé, l'ISO, puis **« Écrire en mode
+   Image DD »** quand Rufus le demande (le mode ISO ne fonctionnera pas), ou avec
+   [balenaEtcher](https://etcher.balena.io/).
+
+Le fichier `.gitattributes` garde les scripts en fins de ligne Linux même si le
+dépôt est cloné avec Git pour Windows.
 
 ## Dépôt d'images
 

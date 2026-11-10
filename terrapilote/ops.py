@@ -105,7 +105,7 @@ def capture(runner, disk_path, name, image_dir=None, compression="zstd", level="
 
         manifest["finished"] = im.now_iso()
         if not runner.dry_run:
-            with open(os.path.join(tmp, im.MANIFEST), "w") as f:
+            with open(os.path.join(tmp, im.MANIFEST), "w", encoding="utf-8") as f:
                 json.dump(manifest, f, indent=2, ensure_ascii=False)
             os.rename(tmp, dest)
     except BaseException:

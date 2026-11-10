@@ -13,7 +13,6 @@ Optimisations du chemin de données :
 - blocs de 8 Mio.
 """
 
-import fcntl
 import os
 import queue
 import re
@@ -23,6 +22,11 @@ import subprocess
 import sys
 import threading
 import time
+
+try:
+    import fcntl  # absent sous Windows (mode démo uniquement)
+except ImportError:
+    fcntl = None
 
 from terrapilote.errors import Cancelled, CommandError, TerraPiloteError
 
@@ -385,7 +389,7 @@ class Runner:
 
 
 def _grow_pipe(pipe):
-    if pipe is None or not hasattr(fcntl, "F_SETPIPE_SZ"):
+    if pipe is None or fcntl is None or not hasattr(fcntl, "F_SETPIPE_SZ"):
         return
     try:
         fcntl.fcntl(pipe.fileno(), fcntl.F_SETPIPE_SZ, PIPE_SIZE)
