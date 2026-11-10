@@ -107,6 +107,12 @@ def cmd_mcast_recv(runner, args):
 
 
 def cmd_mount(runner, args):
+    if args.kind == "clonix":
+        storage.mount_data_partition(runner, args.dir)
+        runner.log(f"Dépôt d'images monté sur {args.dir}")
+        return 0
+    if not args.target:
+        raise ClonixError("Indiquez l'emplacement du dépôt (partition, partage, export…)")
     if args.kind == "local":
         storage.mount_local(runner, args.target, args.dir)
     elif args.kind == "smb":
@@ -229,8 +235,9 @@ def build_parser():
                        help="nouveaux identifiants de disque/partitions (déconseillé pour Windows, voir README)")
 
     sp6 = add("mount", cmd_mount, "monter le dépôt d'images")
-    sp6.add_argument("kind", choices=["local", "smb", "nfs", "sshfs"])
-    sp6.add_argument("target", help="/dev/sdb1, //serveur/partage, serveur:/export ou user@hote:/chemin")
+    sp6.add_argument("kind", choices=["clonix", "local", "smb", "nfs", "sshfs"])
+    sp6.add_argument("target", nargs="?",
+                     help="/dev/sdb1, //serveur/partage, serveur:/export ou user@hote:/chemin ; inutile pour « clonix »")
     sp6.add_argument("--user", help="utilisateur SMB")
     sp6.add_argument("--domain", help="domaine SMB")
 

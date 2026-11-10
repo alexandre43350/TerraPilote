@@ -88,6 +88,10 @@ class App:
         self.job = None
         self.lock = threading.Lock()
         self.inspect = self.runner_factory(_JobReporter(Job("inspect", "")))
+        # Au démarrage, monter automatiquement l'espace « CLONIX-DATA » de la clé
+        # s'il existe, pour que le dépôt soit prêt sans action de l'utilisateur.
+        if not dry_run:
+            storage.auto_mount_data(self.inspect, self.image_dir)
 
     # ----------------------------------------------------------------- état
     def state(self):
@@ -117,6 +121,7 @@ class App:
                 "fstype": dk.fstype_of_mount(r, self.image_dir) if mounted else "",
                 "source": _mount_source(r, self.image_dir) if mounted else "",
                 "free": _free_space(self.image_dir),
+                "clonix_key": bool(storage.find_data_partition(r)),
             },
             "disks": disks,
             "images": images,
@@ -252,6 +257,8 @@ class App:
         kind = body.get("kind")
         if kind == "umount":
             storage.umount(r, self.image_dir)
+        elif kind == "clonix":
+            storage.mount_data_partition(r, self.image_dir)
         elif kind == "local":
             storage.mount_local(r, body["target"], self.image_dir)
         elif kind == "smb":

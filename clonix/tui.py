@@ -87,13 +87,20 @@ def confirm_erase(disk, what):
 
 
 def do_storage(runner, image_dir):
-    kind = menu("Où sont stockées les images ?", [
+    options = []
+    if storage.find_data_partition(runner):
+        options.append(("clonix", "Sur la clé Clonix elle-même (CLONIX-DATA)"))
+    options += [
         ("local", "Disque ou clé USB branché sur ce PC"),
         ("smb", "Partage réseau Windows / Samba / NAS"),
         ("nfs", "Partage réseau NFS"),
         ("sshfs", "Serveur SSH"),
         ("umount", "Démonter le dépôt actuel"),
-    ])
+    ]
+    kind = menu("Où sont stockées les images ?", options)
+    if kind == "clonix":
+        storage.mount_data_partition(runner, image_dir)
+        return message(f"Espace de la clé monté sur {image_dir}")
     if kind == "umount":
         storage.umount(runner, image_dir)
         return message("Dépôt démonté.")
@@ -190,6 +197,8 @@ ACTIONS = [
 
 
 def main(runner, image_dir):
+    # Monte automatiquement l'espace « CLONIX-DATA » de la clé s'il existe.
+    storage.auto_mount_data(runner, image_dir)
     while True:
         mounted = "monté" if os.path.ismount(image_dir) else "NON MONTÉ"
         items = [(k, label) for k, label, _ in ACTIONS]

@@ -128,8 +128,33 @@ dépôt est cloné avec Git pour Windows.
 ## Dépôt d'images
 
 Les images sont lues et écrites dans `/srv/clonix/images`, où l'on monte au
-choix : un disque externe, un partage Windows/NAS (SMB), un export NFS ou un
-serveur SSH. Depuis l'interface : **Dépôt d'images → Configurer**.
+choix : **la clé Clonix elle-même**, un disque externe, un partage Windows/NAS
+(SMB), un export NFS ou un serveur SSH. Depuis l'interface : **Dépôt d'images →
+Configurer**.
+
+### Stocker les images sur la clé Clonix
+
+La partie « système » de la clé est en lecture seule (c'est ce qui la rend
+démarrable). Pour ranger les images **sur la même clé**, ajoutez-lui une 2ᵉ
+partition nommée **`CLONIX-DATA`** : Clonix la détecte et la monte
+automatiquement au démarrage.
+
+Une seule fois, après avoir écrit Clonix sur la clé, sous **Windows** :
+
+1. Menu Démarrer → tapez « partitions » → **Créer et formater des partitions de
+   disque dur** (Gestion des disques).
+2. Repérez la clé : elle montre une petite partition Clonix puis un **espace non
+   alloué**.
+3. Clic droit sur l'espace non alloué → **Nouveau volume simple** → suivant.
+4. Système de fichiers **exFAT**, nom de volume **`CLONIX-DATA`** (en majuscules),
+   terminer.
+
+exFAT est lisible aussi bien par Clonix que par Windows : vous pourrez rebrancher
+la clé sur un PC Windows pour récupérer vos images. (NTFS et ext4 fonctionnent
+aussi ; seul le nom `CLONIX-DATA` compte.)
+
+> Astuce : plus simple encore, utilisez **deux clés** — une pour démarrer Clonix,
+> une autre (ordinaire) pour les images, choisie via **Dépôt → Disque local**.
 
 Format d'une image (un dossier) :
 

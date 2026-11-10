@@ -393,3 +393,41 @@ class ConfirmTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ClonixKeyStorageTest(unittest.TestCase):
+    def _tree(self, data_label="CLONIX-DATA"):
+        from tests.fakes import lsblk_disk, lsblk_part, GIB
+        return [
+            lsblk_disk("sda", 20 * GIB, [lsblk_part("sda1", 10 * GIB, "ext4")]),
+            lsblk_disk("sdu", 16 * GIB, [
+                lsblk_part("sdu1", 2 * GIB, "iso9660", mount="/run/live/medium"),
+                lsblk_part("sdu2", 14 * GIB, "exfat", label=data_label),
+            ], tran="usb", rm=True),
+        ]
+
+    def test_find_data_partition(self):
+        from clonix import storage
+        r = FakeRunner(tree=self._tree(), live_disk="/dev/sdu")
+        part = storage.find_data_partition(r)
+        self.assertEqual(part.path, "/dev/sdu2")
+
+    def test_find_data_partition_absent(self):
+        from clonix import storage
+        r = FakeRunner(tree=self._tree(data_label="PERSO"), live_disk="/dev/sdu")
+        self.assertIsNone(storage.find_data_partition(r))
+
+    def test_mount_data_partition(self):
+        import tempfile, os
+        from clonix import storage
+        r = FakeRunner(tree=self._tree(), live_disk="/dev/sdu")
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(lambda: os.path.isdir(tmp) and os.rmdir(tmp))
+        storage.mount_data_partition(r, tmp)
+        self.assertIn(["mount", "/dev/sdu2", tmp], r.commands("run"))
+
+    def test_mount_data_partition_missing_raises(self):
+        from clonix import storage
+        r = FakeRunner(tree=self._tree(data_label="PERSO"), live_disk="/dev/sdu")
+        with self.assertRaisesRegex(ClonixError, "CLONIX-DATA"):
+            storage.mount_data_partition(r, "/tmp/nowhere-clonix")

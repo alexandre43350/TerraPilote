@@ -1,10 +1,17 @@
-"""Montage du dépôt d'images : disque local, partage Windows/Samba, NFS ou SSH."""
+"""Montage du dépôt d'images : espace sur la clé Clonix elle-même, disque
+local, partage Windows/Samba, NFS ou SSH."""
 
 import os
 import tempfile
 
+from clonix import disks as dk
 from clonix import image as im
 from clonix.errors import ClonixError
+
+# Les images peuvent être stockées sur la clé Clonix, dans une 2e partition
+# (modifiable) nommée ainsi. La partie « système » de la clé reste en lecture
+# seule ; seule cette partition de données est utilisée pour écrire.
+CLONIX_DATA_LABEL = "CLONIX-DATA"
 
 
 def _prepare(runner, mountpoint):
@@ -56,3 +63,46 @@ def umount(runner, mountpoint=im.DEFAULT_DIR):
     if not os.path.ismount(mountpoint):
         raise ClonixError(f"{mountpoint} n'est pas monté")
     runner.run(["umount", mountpoint])
+
+
+def find_data_partition(runner):
+    """Partition « CLONIX-DATA » sur la clé Clonix (ou None)."""
+    live = dk.disk_of_mount(runner, dk.LIVE_MEDIUM)
+    if not live:
+        return None
+    live_real = os.path.realpath(live)
+    for d in dk.list_disks(runner):
+        if os.path.realpath(d.path) != live_real:
+            continue
+        for p in d.partitions:
+            if p.label == CLONIX_DATA_LABEL:
+                return p
+    return None
+
+
+def mount_data_partition(runner, mountpoint=im.DEFAULT_DIR):
+    """Monte l'espace « CLONIX-DATA » de la clé comme dépôt d'images."""
+    part = find_data_partition(runner)
+    if not part:
+        raise ClonixError(
+            "Aucun espace « CLONIX-DATA » sur la clé. Créez une 2e partition "
+            "nommée CLONIX-DATA sur la clé (voir le README), puis réessayez."
+        )
+    _prepare(runner, mountpoint)
+    runner.run(["mount", part.path, mountpoint])
+    return part.path
+
+
+def auto_mount_data(runner, mountpoint=im.DEFAULT_DIR):
+    """Monte l'espace de la clé s'il existe et qu'aucun dépôt n'est monté.
+
+    Best-effort : appelée au démarrage pour que le dépôt soit prêt sans action
+    de l'utilisateur. N'échoue jamais.
+    """
+    try:
+        if os.path.ismount(mountpoint) or not find_data_partition(runner):
+            return False
+        mount_data_partition(runner, mountpoint)
+        return True
+    except (ClonixError, OSError):
+        return False

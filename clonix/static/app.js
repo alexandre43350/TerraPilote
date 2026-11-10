@@ -511,11 +511,19 @@ async function wizardPassword(step = 0, sel = {}) {
     h("div", { class: "wiz-foot" }, h("button", { class: "btn", onclick: () => wizardPassword(0, { disk: sel.disk }) }, "Retour"), go));
 }
 
-function storageDialog(kind = "smb") {
-  const tabs = [["smb", "Partage Windows / NAS"], ["nfs", "NFS"], ["local", "Disque local"]];
+function storageDialog(kind) {
+  const hasKey = S.storage.clonix_key;
+  if (!kind) kind = hasKey ? "clonix" : "smb";
+  const tabs = [];
+  if (hasKey) tabs.push(["clonix", "Clé Clonix"]);
+  tabs.push(["smb", "Partage Windows / NAS"], ["nfs", "NFS"], ["local", "Disque local"]);
   const seg = h("div", { class: "seg" }, tabs.map(([k, l]) => h("button", { class: k === kind ? "on" : "", onclick: () => storageDialog(k) }, l)));
   let form, submit;
-  if (kind === "smb") {
+  if (kind === "clonix") {
+    form = [h("div", { class: "note", style: "margin:0" },
+      "Les images seront enregistrées sur la clé Clonix elle-même, dans son espace de stockage « CLONIX-DATA ». Pratique : vous pouvez ensuite relire cette clé depuis Windows pour récupérer vos images.")];
+    submit = () => ({ kind: "clonix" });
+  } else if (kind === "smb") {
     const share = h("input", { placeholder: "//192.168.1.10/images" });
     const user = h("input", { placeholder: "vide = invité", autocomplete: "off" });
     const pass = h("input", { type: "password", autocomplete: "off" });
@@ -551,7 +559,7 @@ function storageDialog(kind = "smb") {
 }
 
 async function mount(body) {
-  if (body.kind !== "umount" && !body.target) return toast("Indiquez l'emplacement du dépôt", true);
+  if (!["umount", "clonix"].includes(body.kind) && !body.target) return toast("Indiquez l'emplacement du dépôt", true);
   try {
     await api("storage", body);
     closeModal();
