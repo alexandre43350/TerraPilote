@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import tempfile
+import time
 
 from clonix import disks as dk
 from clonix import fsclone as fc
@@ -137,6 +138,8 @@ def capture(runner, disk_path, name, image_dir=None, compression="zstd", level="
     step = 0
 
     runner.log(f"Capture de {disk.describe()} vers {dest}")
+    dk.check_usb_link(runner, image_dir)
+    started = time.monotonic()
     tmp = dest + ".partial"
     if not runner.dry_run:
         if os.path.exists(tmp):
@@ -187,7 +190,19 @@ def capture(runner, disk_path, name, image_dir=None, compression="zstd", level="
             shutil.rmtree(tmp, ignore_errors=True)
         raise
     runner.log(f"Image prête : {dest}")
+    _summary(runner, "Capture", started, sum(f.get("size", 0) for f in manifest["files"].values()), "écrits")
     return dest, manifest
+
+
+def _summary(runner, what, started, nbytes, verb):
+    """Bilan de fin : durée, volume de l'image et débit moyen."""
+    if runner.dry_run:
+        return
+    elapsed = max(time.monotonic() - started, 0.001)
+    minutes, seconds = divmod(int(elapsed), 60)
+    rate = nbytes / elapsed / 1e6
+    runner.log(f"{what} : {minutes} min {seconds:02d} s, {dk.human_size(nbytes)} {verb} "
+               f"(moyenne {rate:.0f} Mo/s)")
 
 
 def _write_small(runner, folder, manifest, name, data):
@@ -251,6 +266,9 @@ def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=N
         confirm(manifest, disk)
 
     runner.log(f"Déploiement de « {manifest['name']} » sur {disk.describe()}")
+    dk.check_usb_link(runner, image_dir)
+    dk.tune_readahead(runner, image_dir)
+    started = time.monotonic()
     pt.write_table(runner, disk, table_text, new_uuids=new_uuids)
     pt.restore_boot_area(runner, disk.path, table, boot)
 
@@ -274,9 +292,12 @@ def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=N
         cmds.append(fc.write_cmd(mode, rec["tool"], target, flags))
         runner.start_step(step)
         step += 1
+        part_started = time.monotonic()
         with source.open(rec["file"]) as f:
             runner.pipeline(cmds, feed=im.VerifyingReader(f, rec["file"], files.get(rec["file"])),
                             total=rec["size"])
+        _summary(runner, f"  partition {rec['number']}", part_started,
+                 files.get(rec["file"], {}).get("size", 0), "lus")
 
     runner.run(["sync"], check=False)
     if adapt_windows and any(r.get("fstype") == "ntfs" for r in manifest["partitions"]):
@@ -287,6 +308,7 @@ def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=N
             runner.warn(f"Adaptation de Windows impossible : {exc}. Windows risque de ne pas "
                         "démarrer (écran bleu INACCESSIBLE_BOOT_DEVICE).")
     runner.log(f"Déploiement terminé sur {disk.path}")
+    _summary(runner, "Déploiement", started, im.image_bytes(manifest), "lus")
     return manifest
 
 

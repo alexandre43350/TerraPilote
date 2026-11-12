@@ -190,6 +190,65 @@ def check_writable_target(runner, disk, image_dir=None):
         )
 
 
+def usb_speed(disk_path, sysfs="/sys/block"):
+    """Vitesse du lien USB du disque, en Mbit/s (480 = USB 2), ou None si pas USB."""
+    try:
+        path = os.path.realpath(os.path.join(sysfs, os.path.basename(disk_path), "device"))
+    except OSError:
+        return None
+    while path and path != os.path.dirname(path):
+        speed = os.path.join(path, "speed")
+        if os.path.isfile(speed) and os.path.isfile(os.path.join(path, "idVendor")):
+            try:
+                with open(speed) as f:
+                    return int(float(f.read().strip()))
+            except (OSError, ValueError):
+                return None
+        path = os.path.dirname(path)
+    return None
+
+
+def check_usb_link(runner, image_dir, sysfs="/sys/block"):
+    """Prévient si le dépôt d'images est sur un support branché en USB 2."""
+    if not image_dir or not os.path.isdir(image_dir):
+        return None
+    disk = disk_of_mount(runner, image_dir)
+    if not disk:
+        return None
+    speed = usb_speed(disk, sysfs)
+    if speed is not None and speed <= 480:
+        runner.warn(
+            f"Le dépôt d'images ({disk}) est branché en USB 2 ({speed} Mbit/s) : la copie est "
+            "limitée à environ 40 Mo/s. Branchez-le sur un port USB 3 (bleu, ou marqué « SS ») : "
+            "c'est 3 à 10 fois plus rapide."
+        )
+    return speed
+
+
+READAHEAD_KB = 16 * 1024
+
+
+def tune_readahead(runner, directory, kb=READAHEAD_KB):
+    """Agrandit la lecture anticipée du support qui porte ``directory``.
+
+    Par défaut Linux lit 128 Ko d'avance : un SSD ou une clé USB lus ainsi
+    plafonnent souvent à 30-50 Mo/s, alors qu'ils en font plusieurs centaines
+    avec de grosses lectures. On règle le périphérique monté et ses parents
+    (partition, /dev/mapper de Ventoy, disque).
+    """
+    if runner.dry_run or not directory or not os.path.isdir(directory):
+        return []
+    out = runner.run(["findmnt", "-n", "-o", "SOURCE", "--target", directory], readonly=True, check=False)
+    source = re.sub(r"\[.*\]$", "", out.strip().splitlines()[0]) if out.strip() else ""
+    if not source.startswith("/dev/"):
+        return []  # partage réseau : sans objet
+    chain = runner.run(["lsblk", "-n", "-r", "-s", "-o", "PATH", source], readonly=True, check=False)
+    devices = [line.strip() for line in chain.splitlines() if line.strip().startswith("/dev/")] or [source]
+    for dev in devices:
+        runner.run(["blockdev", "--setra", str(kb * 2), dev], check=False)
+    return devices
+
+
 def check_readable_source(disk):
     if disk.mountpoints:
         raise ClonixError(

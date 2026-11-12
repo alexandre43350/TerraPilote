@@ -636,3 +636,71 @@ class HibernatedCaptureTest(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         ops.capture(r, "/dev/sda", "win", tmp.name)
         self.assertIn("powercfg /h off", r.reporter.out.getvalue())
+
+
+class UsbSpeedTest(unittest.TestCase):
+    def _sysfs(self, speed):
+        root = tempfile.mkdtemp()
+        self.addCleanup(__import__("shutil").rmtree, root)
+        usbdev = os.path.join(root, "devices", "pci0000:00", "0000:00:14.0", "usb2", "2-1")
+        disk = os.path.join(usbdev, "2-1:1.0", "host0", "target0:0:0", "0:0:0:0")
+        os.makedirs(disk)
+        for name, value in (("speed", speed), ("idVendor", "0bda")):
+            with open(os.path.join(usbdev, name), "w") as f:
+                f.write(value + "\n")
+        os.makedirs(os.path.join(root, "block", "sda"))
+        os.symlink(disk, os.path.join(root, "block", "sda", "device"))
+        return os.path.join(root, "block")
+
+    def test_reads_usb_link_speed(self):
+        self.assertEqual(dk.usb_speed("/dev/sda", sysfs=self._sysfs("480")), 480)
+        self.assertEqual(dk.usb_speed("/dev/sda", sysfs=self._sysfs("5000")), 5000)
+
+    def test_not_usb(self):
+        root = tempfile.mkdtemp()
+        self.addCleanup(__import__("shutil").rmtree, root)
+        os.makedirs(os.path.join(root, "devices", "pci0000:00", "nvme0"))
+        os.makedirs(os.path.join(root, "block", "nvme0n1"))
+        os.symlink(os.path.join(root, "devices", "pci0000:00", "nvme0"),
+                   os.path.join(root, "block", "nvme0n1", "device"))
+        self.assertIsNone(dk.usb_speed("/dev/nvme0n1", sysfs=os.path.join(root, "block")))
+
+    def test_warns_on_usb2_store(self):
+        class Store(FakeRunner):
+            def run(self, argv, **kw):
+                if argv[0] == "findmnt":
+                    return "/dev/sda1\n"
+                return super().run(argv, **kw)
+
+        r = Store()
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(os.rmdir, tmp)
+        self.assertEqual(dk.check_usb_link(r, tmp, sysfs=self._sysfs("480")), 480)
+        self.assertIn("USB 2", r.reporter.out.getvalue())
+        r2 = Store()
+        dk.check_usb_link(r2, tmp, sysfs=self._sysfs("5000"))
+        self.assertNotIn("USB 2", r2.reporter.out.getvalue())
+
+
+class ReadaheadTest(unittest.TestCase):
+    def test_sets_readahead_on_store_chain(self):
+        class Store(FakeRunner):
+            def run(self, argv, **kw):
+                if argv[0] == "findmnt":
+                    return "/dev/mapper/sda1\n"
+                if argv[0] == "lsblk" and "-s" in argv:
+                    return "/dev/mapper/sda1\n/dev/sda1\n/dev/sda\n"
+                return super().run(argv, **kw)
+
+        r = Store()
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(os.rmdir, tmp)
+        self.assertEqual(dk.tune_readahead(r, tmp), ["/dev/mapper/sda1", "/dev/sda1", "/dev/sda"])
+        self.assertIn(["blockdev", "--setra", "32768", "/dev/sda"], r.commands("run"))
+
+    def test_network_share_untouched(self):
+        r = FakeRunner()  # findmnt répond « tmpfs »
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(os.rmdir, tmp)
+        self.assertEqual(dk.tune_readahead(r, tmp), [])
+        self.assertFalse([c for c in r.commands("run") if c[0] == "blockdev"])

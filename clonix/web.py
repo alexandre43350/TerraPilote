@@ -230,6 +230,7 @@ class App:
 
             def verify(r):
                 r.log(f"Vérification de « {image} » : relecture de chaque fichier…")
+                dk.tune_readahead(r, d)
                 r.plan([(f"Vérification de « {image} »", 1)])
                 r.start_step(0)
                 manifest, bad = im.verify(im.resolve(image, d), progress=r.byte_progress())

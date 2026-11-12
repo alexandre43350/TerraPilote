@@ -41,6 +41,7 @@ def receiver_cmd(interface=None, portbase=DEFAULT_PORTBASE):
 def send(runner, name, receivers, image_dir=None, **opts):
     path = im.resolve(name, image_dir)
     runner.log("Vérification de l'image avant l'envoi…")
+    dk.tune_readahead(runner, os.path.dirname(path))
     runner.plan([("Vérification de l'image", 1), ("Diffusion", 1)])
     runner.start_step(0)
     manifest, bad = im.verify(path, progress=runner.byte_progress())

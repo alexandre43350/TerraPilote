@@ -6,6 +6,7 @@ import os
 import tempfile
 from types import SimpleNamespace
 
+from clonix import disks as dk
 from clonix import image as im
 from clonix.errors import ClonixError, CommandError
 
@@ -38,6 +39,7 @@ def mount_local(runner, device, mountpoint=im.DEFAULT_DIR):
     _prepare(runner, mountpoint)
     try:
         runner.run(["mount", device, mountpoint])
+        dk.tune_readahead(runner, mountpoint)
     except CommandError as exc:
         if _is_busy(exc):
             raise ClonixError(
@@ -135,6 +137,7 @@ def mount_data_partition(runner, mountpoint=im.DEFAULT_DIR):
     for cand in candidates:
         try:
             runner.run(["mount", cand.path, mountpoint])
+            dk.tune_readahead(runner, mountpoint)
             return cand.path
         except CommandError as exc:
             if not _is_busy(exc):

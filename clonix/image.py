@@ -146,7 +146,7 @@ class DirSource:
         self.path = path
 
     def open(self, name):
-        return open(os.path.join(self.path, name), "rb")
+        return open_sequential(os.path.join(self.path, name))
 
     def close(self):
         pass
@@ -178,6 +178,20 @@ def write_tar_stream(image_path, manifest, fileobj):
             tar.add(os.path.join(image_path, name), arcname=name, recursive=False)
 
 
+def open_sequential(path):
+    """Ouvre un fichier qui sera lu du début à la fin.
+
+    Le noyau double alors sa lecture anticipée : les SSD et clés USB, lents en
+    petites lectures, lisent beaucoup plus vite.
+    """
+    f = open(path, "rb")
+    try:
+        os.posix_fadvise(f.fileno(), 0, 0, os.POSIX_FADV_SEQUENTIAL)
+    except (AttributeError, OSError):
+        pass  # indisponible (Windows, macOS en mode démo) : sans conséquence
+    return f
+
+
 def image_bytes(manifest):
     return sum(rec.get("size", 0) for rec in manifest["files"].values())
 
@@ -202,7 +216,7 @@ def verify(image_path, progress=None):
             continue
         h = hashlib.sha256()
         size = 0
-        with open(path, "rb") as f:
+        with open_sequential(path) as f:
             while True:
                 buf = f.read(8 * 1024 * 1024)
                 if not buf:
