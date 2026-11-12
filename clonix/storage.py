@@ -23,6 +23,21 @@ VENTOY_HELP = (
 )
 
 
+def _mount_cmd(runner, device, mountpoint, fstype=None):
+    """Commande de montage ; exFAT avec le pilote du noyau.
+
+    Sous Linux, exFAT peut aussi être monté par un pilote FUSE (exfat-fuse),
+    nettement plus lent. « -i » interdit l'appel à /sbin/mount.exfat et force le
+    pilote du noyau.
+    """
+    if fstype is None:
+        out = runner.run(["lsblk", "-n", "-o", "FSTYPE", device], readonly=True, check=False)
+        fstype = out.strip().splitlines()[0] if out.strip() else ""
+    if fstype == "exfat":
+        return ["mount", "-i", "-t", "exfat", device, mountpoint]
+    return ["mount", device, mountpoint]
+
+
 def _is_busy(exc):
     msg = (exc.stderr or "").lower()
     return "busy" in msg or "already mounted" in msg
@@ -38,7 +53,7 @@ def _prepare(runner, mountpoint):
 def mount_local(runner, device, mountpoint=im.DEFAULT_DIR):
     _prepare(runner, mountpoint)
     try:
-        runner.run(["mount", device, mountpoint])
+        runner.run(_mount_cmd(runner, device, mountpoint))
         dk.tune_readahead(runner, mountpoint)
     except CommandError as exc:
         if _is_busy(exc):
@@ -136,7 +151,7 @@ def mount_data_partition(runner, mountpoint=im.DEFAULT_DIR):
     ventoy_locked = False
     for cand in candidates:
         try:
-            runner.run(["mount", cand.path, mountpoint])
+            runner.run(_mount_cmd(runner, cand.path, mountpoint, cand.fstype))
             dk.tune_readahead(runner, mountpoint)
             return cand.path
         except CommandError as exc:

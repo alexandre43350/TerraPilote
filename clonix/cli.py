@@ -109,6 +109,12 @@ def cmd_mcast_recv(runner, args):
     return 0
 
 
+def cmd_bench(runner, args):
+    from clonix import bench
+    bench.run(runner, args.disk, args.dir)
+    return 0
+
+
 def cmd_winfix(runner, args):
     from clonix import winfix
     disk = dk.get_disk(runner, args.disk)
@@ -255,6 +261,9 @@ def build_parser():
     for s in (sp_deploy, sp5):
         s.add_argument("--no-adapt", dest="adapt", action="store_false",
                        help="ne pas adapter Windows au PC après le déploiement")
+
+    sp10 = add("bench", cmd_bench, "tester les vitesses (disque du PC, support des images, processeur)")
+    sp10.add_argument("disk", help="disque du PC, ex. /dev/nvme0n1 (lu seulement)")
 
     sp9 = add("winfix", cmd_winfix,
               "réparer un Windows déployé qui plante (INACCESSIBLE_BOOT_DEVICE) : pilotes de disque")

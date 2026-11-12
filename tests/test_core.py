@@ -425,7 +425,8 @@ class ClonixKeyStorageTest(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         self.addCleanup(lambda: os.path.isdir(tmp) and os.rmdir(tmp))
         storage.mount_data_partition(r, tmp)
-        self.assertIn(["mount", "/dev/sdu2", tmp], r.commands("run"))
+        # exFAT : pilote du noyau forcé (« -i » interdit le pilote FUSE, plus lent)
+        self.assertIn(["mount", "-i", "-t", "exfat", "/dev/sdu2", tmp], r.commands("run"))
 
     def test_mount_data_partition_missing_raises(self):
         from clonix import storage

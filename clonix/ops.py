@@ -196,15 +196,16 @@ def capture(runner, disk_path, name, image_dir=None, compression="zstd", level="
     return dest, manifest
 
 
-def _summary(runner, what, started, nbytes, verb):
+def _summary(runner, what, started, nbytes, verb, visible=True):
     """Bilan de fin : durée, volume de l'image et débit moyen."""
     if runner.dry_run:
         return
     elapsed = max(time.monotonic() - started, 0.001)
     minutes, seconds = divmod(int(elapsed), 60)
     rate = nbytes / elapsed / 1e6
-    runner.log(f"{what} : {minutes} min {seconds:02d} s, {dk.human_size(nbytes)} {verb} "
-               f"(moyenne {rate:.0f} Mo/s)")
+    text = (f"{what} : {minutes} min {seconds:02d} s, {dk.human_size(nbytes)} {verb} "
+            f"(moyenne {rate:.0f} Mo/s)")
+    (runner.note if visible else runner.log)(text)
 
 
 def _write_small(runner, folder, manifest, name, data):
@@ -299,7 +300,7 @@ def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=N
             runner.pipeline(cmds, feed=im.VerifyingReader(f, rec["file"], files.get(rec["file"])),
                             total=rec["size"])
         _summary(runner, f"  partition {rec['number']}", part_started,
-                 files.get(rec["file"], {}).get("size", 0), "lus")
+                 files.get(rec["file"], {}).get("size", 0), "lus", visible=False)
 
     runner.run(["sync"], check=False)
     if adapt_windows and any(r.get("fstype") == "ntfs" for r in manifest["partitions"]):

@@ -42,6 +42,7 @@ const ICONS = {
   check: P('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
   stack: P('<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>'),
   key: P('<circle cx="8" cy="8" r="4.5"/><path d="M11.2 11.2L20 20M17 17l2-2M14 14l2.5-2.5"/>'),
+  gauge: P('<path d="M4 15a8 8 0 1 1 16 0"/><path d="M12 15l4-5"/><circle cx="12" cy="15" r="1.2"/>'),
   wrench: P('<path d="M14.7 6.3a4 4 0 0 0 5 5L21 13l-8 8-2.5-2.5 1.2-1.2a4 4 0 0 1-5-5L3 9.6 5.6 7l2.7 2.7a4 4 0 0 1 5-5z"/>'),
   win: P('<path d="M3 5l8-1v7H3zM13 3.7L21 3v8h-8zM3 13h8v6l-8-1zM13 13h8v8l-8-1z"/>'),
   tux: P('<path d="M12 3a3.5 3.5 0 0 1 3.5 3.5v3c2 1.5 3.5 4 3.5 7 0 1.5-3 3.5-7 3.5s-7-2-7-3.5c0-3 1.5-5.5 3.5-7v-3A3.5 3.5 0 0 1 12 3z"/><path d="M10 7.5h.01M14 7.5h.01"/>'),
@@ -140,6 +141,7 @@ const ACTIONS = [
   { id: "recv", c: "c-cyan", title: "Recevoir", text: "Image depuis le réseau", run: () => wizardReceive(), small: true },
   { id: "verify", c: "", title: "Vérifier", text: "Intégrité SHA-256", run: () => wizardVerify(), small: true },
   { id: "key", c: "c-amber", title: "Mot de passe", text: "Réinitialiser l'admin d'un poste", run: () => wizardPassword(), small: true },
+  { id: "gauge", c: "c-cyan", title: "Vitesses", text: "Trouver ce qui ralentit", run: () => wizardBench(), small: true },
   { id: "wrench", c: "c-blue", title: "Réparer Windows", text: "Écran bleu au démarrage (0x7B)", run: () => wizardWinfix(), small: true },
 ];
 
@@ -459,6 +461,13 @@ function wizardReceive(step = 0, sel = {}) {
     h("div", { class: "wiz-foot" }, h("button", { class: "btn", onclick: () => wizardReceive(0, sel) }, "Retour"), go));
 }
 
+function wizardBench(sel = {}) {
+  if (needStorage()) return;
+  openModal(wizHead("Test des vitesses", "Mesure en une minute la lecture du disque du PC, l'écriture et la lecture sur le support des images, et le processeur. Rien n'est écrit sur le disque du PC."),
+    pickDisks(S.disks.filter((d) => !d.protected), sel.disk, (d) => wizardBench({ disk: d.path }), (d) => (d.partitions.length ? null : "vide")),
+    wizFoot(null, { label: "Lancer le test", disabled: !sel.disk, fn: () => launch("bench", { disk: sel.disk }) }));
+}
+
 function wizardWinfix(step = 0, sel = {}) {
   if (step === 0) {
     return openModal(wizHead("Réparer Windows", "Choisissez le disque du Windows qui affiche INACCESSIBLE_BOOT_DEVICE au démarrage.", 0, 2),
@@ -603,7 +612,7 @@ async function mount(body) {
 
 /* ------------------------------------------------------------------ tâche */
 const CIRC = 2 * Math.PI * 52;
-const KINDS = { capture: "Capture", deploy: "Déploiement", clone: "Clonage", "mcast-send": "Diffusion multicast", "mcast-recv": "Réception multicast", verify: "Vérification", password: "Mot de passe", winfix: "Réparation Windows" };
+const KINDS = { capture: "Capture", deploy: "Déploiement", clone: "Clonage", "mcast-send": "Diffusion multicast", "mcast-recv": "Réception multicast", verify: "Vérification", password: "Mot de passe", winfix: "Réparation Windows", bench: "Test des vitesses" };
 let shownJob = null, shownLogs = -1, history = [];
 
 function renderSpark(job) {
@@ -655,6 +664,9 @@ function renderJob() {
   $("#job-elapsed").textContent = duration((job.finished || Date.now() / 1000) - job.started);
   $("#job-error").hidden = !job.error;
   $("#job-error").textContent = job.error || "";
+  const notes = job.notes || [];
+  $("#job-notes").hidden = !notes.length;
+  $("#job-notes").replaceChildren(...notes.map((n) => h("p", {}, n)));
   const warnings = job.warnings || [];
   $("#job-warn").hidden = !warnings.length;
   $("#job-warn").replaceChildren(...warnings.map((w) => h("p", {}, "⚠ ", w)));

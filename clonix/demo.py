@@ -147,6 +147,8 @@ class DemoApp(App):
             return self._fake_accounts(body)
         if name == "winfix":
             return self._fake_winfix(body)
+        if name == "bench":
+            return self._fake_bench(body)
         if name in ("deploy", "mcast-recv"):
             body = dict(body, adapt=False)  # pas de vrai Windows dans la démo
         if name == "password":
@@ -162,6 +164,28 @@ class DemoApp(App):
                                  {"name": "Invité", "admin": False}]}
         return {"os": "linux", "partition": disk.partitions[0].path if disk.partitions else disk.path,
                 "accounts": [{"name": "root", "admin": True}, {"name": "admin", "admin": False}]}
+
+    def _fake_bench(self, body):
+        disk = self._disk(body["disk"], writable=False)
+
+        def work(r):
+            steps = ["Lecture du disque du PC", "Écriture sur le support des images",
+                     "Lecture du support des images", "Processeur : compression", "Processeur : contrôle"]
+            r.plan([(s, 1) for s in steps])
+            for i in range(len(steps)):
+                r.start_step(i)
+                time.sleep(0.6)
+                r.emit(1.0)
+            for line in (f"Lecture du disque du PC ({disk.name}) : 1 850 Mo/s",
+                         "Écriture sur le support des images (sdc, USB 5000 Mbit/s) : 410 Mo/s",
+                         "Lecture du support des images : 395 Mo/s",
+                         "Processeur : compression 620 Mo/s, décompression 1 900 Mo/s, contrôle SHA-256 "
+                         "880 Mo/s (données compressées au rapport 1,9:1)",
+                         "→ Capture estimée : environ 620 Mo/s de données du PC, limitée par la compression (processeur).",
+                         "→ Restauration estimée : environ 750 Mo/s de données du PC, limitée par la lecture du "
+                         "support des images."):
+                r.note(line)
+        return self.start("bench", f"Test des vitesses ({disk.path})", work)
 
     def _fake_winfix(self, body):
         disk = self._disk(body["disk"], writable=True)

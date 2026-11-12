@@ -100,6 +100,9 @@ class Reporter:
     def warn(self, message):
         self.log(f"⚠ {message}")
 
+    def note(self, message):
+        self.log(message)
+
     def progress(self, p):
         if not getattr(self.out, "isatty", lambda: False)():
             return
@@ -149,6 +152,14 @@ class Runner:
             warn(message)
         else:
             self.log(f"⚠ {message}")
+
+    def note(self, message):
+        """Résultat à montrer directement à l'écran (bilan, mesures)."""
+        note = getattr(self.reporter, "note", None)
+        if note:
+            note(message)
+        else:
+            self.log(message)
 
     def plan(self, steps):
         """Déclare les étapes longues : liste de (libellé, poids en octets)."""

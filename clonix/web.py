@@ -48,6 +48,7 @@ class Job:
         self.error = None
         self.logs = collections.deque(maxlen=400)
         self.warnings = []
+        self.notes = []
         self.progress = None
         self.started = time.time()
         self.finished = None
@@ -63,7 +64,8 @@ class Job:
     def as_dict(self):
         return {
             "id": self.id, "kind": self.kind, "title": self.title, "state": self.state,
-            "error": self.error, "warnings": list(self.warnings), "logs": list(self.logs),
+            "error": self.error, "warnings": list(self.warnings), "notes": list(self.notes),
+            "logs": list(self.logs),
             "progress": self.progress,
             "started": self.started, "finished": self.finished,
         }
@@ -79,6 +81,10 @@ class _JobReporter:
     def warn(self, message):
         self.job.warnings.append(str(message))
         self.job.log(f"⚠ {message}")
+
+    def note(self, message):
+        self.job.notes.append(str(message))
+        self.job.log(str(message))
 
     def progress(self, p):
         self.job.progress_update(p)
@@ -244,6 +250,10 @@ class App:
             self._confirm(disk, body)
             return self.start("winfix", f"Réparation du démarrage de Windows → {disk.path}",
                               lambda r: winfix.adapt(r, disk.path))
+        if name == "bench":
+            from clonix import bench
+            disk = self._disk(body["disk"], writable=False)
+            return self.start("bench", f"Test des vitesses ({disk.path})", lambda r: bench.run(r, disk.path, d))
         if name == "accounts":
             from clonix import password as pw
             disk = self._disk(body["disk"], writable=False)
