@@ -19,6 +19,17 @@ done
 export XDG_RUNTIME_DIR
 [ -d "$XDG_RUNTIME_DIR" ] || install -d -m 700 "$XDG_RUNTIME_DIR"
 
+# Clavier : sans réglage, l'écran graphique (cage) utilise le clavier américain
+# (QWERTY). On reprend la disposition de la console, fixée au démarrage par le
+# paramètre keyboard-layouts (fr par défaut).
+if [ -r /etc/default/keyboard ]; then
+    . /etc/default/keyboard
+fi
+export XKB_DEFAULT_LAYOUT="${XKBLAYOUT:-fr}"
+export XKB_DEFAULT_MODEL="${XKBMODEL:-pc105}"
+[ -n "${XKBVARIANT:-}" ] && export XKB_DEFAULT_VARIANT="$XKBVARIANT"
+[ -n "${XKBOPTIONS:-}" ] && export XKB_DEFAULT_OPTIONS="$XKBOPTIONS"
+
 # Rendu logiciel (pixman + llvmpipe) : Clonix doit démarrer sur n'importe quel
 # PC, y compris ceux dont le pilote graphique accéléré n'est pas disponible.
 # Une page web se dessine très bien sans accélération matérielle.
