@@ -312,15 +312,13 @@ function targetProblem(d, need, exclude) {
 const flow = () => icon("arrow", "flow");
 
 function dangerConfirm(d, onValid, opts = {}) {
-  // Une case à cocher plutôt qu'une saisie : un geste volontaire, sans taper.
-  // Le serveur exige toujours le nom du disque, envoyé quand la case est cochée.
-  const box = h("input", { type: "checkbox" });
+  // Pas de saisie ni de case à cocher : l'écran récapitulatif et le bouton rouge
+  // suffisent. Le nom du disque est transmis automatiquement au serveur, qui
+  // l'exige toujours (protection contre une requête envoyée par erreur).
   const zone = h("div", { class: "danger-zone" },
     h("h3", {}, icon("warn"), opts.title || "Effacement total du disque"),
-    h("p", { class: "note" }, opts.text || `Toutes les données de ${d.path} (${d.model || "disque"}, ${size(d.size)}) seront définitivement remplacées.`),
-    h("label", { class: "confirm-box" }, box,
-      h("span", {}, opts.confirmLabel || "Je confirme : effacer ", h("strong", {}, d.path), ` (${d.model || "disque"}, ${size(d.size)})`)));
-  box.addEventListener("change", () => onValid(box.checked, box.checked ? d.name : ""));
+    h("p", { class: "note" }, opts.text || `Toutes les données de ${d.path} (${d.model || "disque"}, ${size(d.size)}) seront définitivement remplacées.`));
+  onValid(true, d.name);
   return zone;
 }
 
@@ -657,6 +655,10 @@ function renderJob() {
   $("#job-elapsed").textContent = duration((job.finished || Date.now() / 1000) - job.started);
   $("#job-error").hidden = !job.error;
   $("#job-error").textContent = job.error || "";
+  const warnings = job.warnings || [];
+  $("#job-warn").hidden = !warnings.length;
+  $("#job-warn").replaceChildren(...warnings.map((w) => h("p", {}, "⚠ ", w)));
+  if (job.state === "done" && warnings.length) $("#job-step").textContent = "Terminé, avec des avertissements à lire ci-dessous";
   $("#job-cancel").hidden = job.state !== "running";
   $("#job-close").hidden = job.state === "running";
   if (job.state === "error") $("#job-log").hidden = false;

@@ -73,7 +73,8 @@ class EnableDriversTest(unittest.TestCase):
     def test_enables_storage_drivers_in_every_control_set(self):
         root = system_hive()
         fake = FakeHivexModule(root)
-        changes = winfix.enable_storage_drivers("/x/SYSTEM", fake)
+        changes, found = winfix.enable_storage_drivers("/x/SYSTEM", fake)
+        self.assertEqual(found, {"stornvme", "storahci"})
         self.assertEqual(fake.opened, [("/x/SYSTEM", True)])
         self.assertTrue(fake.committed)
         for cs in ("ControlSet001", "ControlSet002"):
@@ -175,6 +176,32 @@ class DeployAdaptTest(unittest.TestCase):
         with mock.patch.object(winfix, "adapt", side_effect=ClonixError("pas de hivex")):
             r = self._deploy(adapt_windows=True)
         self.assertIn("Adaptation de Windows impossible : pas de hivex", r.reporter.out.getvalue())
+
+
+class VmdTest(unittest.TestCase):
+    def _sysfs(self, target):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root)
+        dev = os.path.join(root, "devices", target)
+        os.makedirs(dev)
+        os.makedirs(os.path.join(root, "block", "nvme0n1"))
+        os.symlink(dev, os.path.join(root, "block", "nvme0n1", "device"))
+        return os.path.join(root, "block")
+
+    def test_detects_vmd_domain(self):
+        vmd = self._sysfs("pci0000:00/0000:00:0e.0/pci10000:e0/10000:e1:00.0/nvme/nvme0")
+        plain = self._sysfs("pci0000:00/0000:00:06.0/0000:01:00.0/nvme/nvme0")
+        self.assertTrue(winfix.uses_intel_vmd("/dev/nvme0n1", sysfs=vmd))
+        self.assertFalse(winfix.uses_intel_vmd("/dev/nvme0n1", sysfs=plain))
+
+    def test_intel_drivers_enabled_when_present(self):
+        root = system_hive()
+        services = child(child(root, "ControlSet001"), "Services")
+        services["children"].append(node("iaStorVD", {}, []))
+        services["children"][-1]["parent"] = services
+        changes, found = winfix.enable_storage_drivers("/x/SYSTEM", FakeHivexModule(root))
+        self.assertIn("iastorvd", found)
+        self.assertEqual(child(services, "iaStorVD")["values"]["Start"]["value"], struct.pack("<I", 0))
 
 
 if __name__ == "__main__":

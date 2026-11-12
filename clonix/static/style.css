@@ -299,6 +299,9 @@ main { padding: 34px 40px 48px; max-width: 1480px; width: 100%; }
 @keyframes shine { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
 .job-actions { display: flex; gap: 10px; margin-top: 22px; flex-wrap: wrap; }
 .job-actions .ghost { margin-left: auto; }
+.warn-box { margin: 16px 0 0; padding: 12px 14px; border-radius: 12px; background: rgba(246,185,85,.09); border: 1px solid rgba(246,185,85,.45); color: #ffe2b0; font-size: 14px; }
+.warn-box p { margin: 0; }
+.warn-box p + p { margin-top: 8px; }
 .error-box { margin: 16px 0 0; padding: 12px 14px; border-radius: 12px; background: rgba(255,107,107,.09); border: 1px solid rgba(255,107,107,.35); color: #ffcece; }
 .console {
   grid-column: 1 / -1; margin: 0; height: 190px; overflow: auto; padding: 14px 16px; border-radius: 14px;

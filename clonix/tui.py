@@ -82,7 +82,7 @@ def confirm_erase(disk, what):
     parts = "\n".join(f"  {p.path} {dk.human_size(p.size)} {p.fstype} {p.label}" for p in disk.partitions)
     text = (f"{what}\n\nLe disque {disk.describe()} va être ENTIÈREMENT EFFACÉ :\n"
             f"{parts or '  (aucune partition)'}\n\nContinuer ?")
-    if not yesno(text) or not yesno(f"Dernière confirmation : effacer {disk.path} ?"):
+    if not yesno(text):
         raise Back()
 
 

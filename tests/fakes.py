@@ -126,6 +126,11 @@ class FakeRunner(Runner):
         self.last_fed = data
         return 0
 
+    geometry = None  # {chemin de partition: (début, taille)} ; None = pas de contrôle
+
+    def partition_geometry(self, part_path):
+        return (self.geometry or {}).get(part_path)
+
     def read_at(self, path, offset, size):
         data = self.disk_bytes.get(path, bytes(range(256)) * 4096)
         return data[offset:offset + size]

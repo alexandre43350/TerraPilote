@@ -97,6 +97,9 @@ class Reporter:
             self._bar = False
         print(message, file=self.out, flush=True)
 
+    def warn(self, message):
+        self.log(f"⚠ {message}")
+
     def progress(self, p):
         if not getattr(self.out, "isatty", lambda: False)():
             return
@@ -138,6 +141,14 @@ class Runner:
     # ----------------------------------------------------------- rapports
     def log(self, message):
         self.reporter.log(message)
+
+    def warn(self, message):
+        """Avertissement à montrer clairement (pas seulement dans le journal)."""
+        warn = getattr(self.reporter, "warn", None)
+        if warn:
+            warn(message)
+        else:
+            self.log(f"⚠ {message}")
 
     def plan(self, steps):
         """Déclare les étapes longues : liste de (libellé, poids en octets)."""
@@ -365,6 +376,18 @@ class Runner:
             self.log(f"  {line}")
 
     # ------------------------------------------------------------ accès direct
+    def partition_geometry(self, part_path):
+        """(début, taille) de la partition vue par Linux, en secteurs de 512 o."""
+        base = os.path.join("/sys/class/block", os.path.basename(part_path))
+        try:
+            with open(os.path.join(base, "start")) as f:
+                start = int(f.read())
+            with open(os.path.join(base, "size")) as f:
+                size = int(f.read())
+        except (OSError, ValueError):
+            return None
+        return start, size
+
     def read_at(self, path, offset, size):
         with open(path, "rb") as f:
             f.seek(offset)

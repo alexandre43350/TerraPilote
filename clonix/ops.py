@@ -10,7 +10,7 @@ from clonix import disks as dk
 from clonix import fsclone as fc
 from clonix import image as im
 from clonix import partitions as pt
-from clonix.errors import ClonixError
+from clonix.errors import ClonixError, CommandError
 
 
 def _types_by_number(table_text):
@@ -89,6 +89,21 @@ def slim_windows(runner, disk):
                 pass
 
 
+def windows_not_shut_down(runner, part):
+    """Windows a-t-il laissé la partition en démarrage rapide / veille prolongée ?
+
+    ntfs-3g.probe --readwrite renvoie 14 (veille prolongée) ou 15 (volume mal
+    démonté) dans ces cas.
+    """
+    if part.fstype != "ntfs" or not runner.which("ntfs-3g.probe"):
+        return False
+    try:
+        runner.run(["ntfs-3g.probe", "--readwrite", part.path], readonly=True)
+    except CommandError as exc:
+        return exc.returncode in (14, 15)
+    return False
+
+
 def capture(runner, disk_path, name, image_dir=None, compression="zstd", level="auto", description="",
             slim=False):
     disk = dk.get_disk(runner, disk_path)
@@ -107,6 +122,14 @@ def capture(runner, disk_path, name, image_dir=None, compression="zstd", level="
     if slim:
         runner.log("Allègement : retrait des fichiers jetables de Windows…")
         slim_windows(runner, disk)
+    else:
+        for part in disk.partitions:
+            if windows_not_shut_down(runner, part):
+                runner.warn(
+                    f"Windows n'était pas complètement arrêté sur {part.path} (démarrage rapide "
+                    "ou veille prolongée). Clonix corrigera la copie au déploiement, mais pour une "
+                    "image propre : dans Windows, tapez « powercfg /h off » dans une invite de "
+                    "commandes en administrateur, éteignez le PC, puis recapturez.")
     table_text = pt.dump_table(runner, disk.path)
     table, plan = plan_partitions(runner, disk, table_text)
     manifest = im.new_manifest(os.path.basename(dest), disk, table, description)
@@ -261,7 +284,8 @@ def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=N
         try:
             winfix.adapt(runner, disk.path)
         except ClonixError as exc:
-            runner.log(f"Adaptation de Windows impossible : {exc}")
+            runner.warn(f"Adaptation de Windows impossible : {exc}. Windows risque de ne pas "
+                        "démarrer (écran bleu INACCESSIBLE_BOOT_DEVICE).")
     runner.log(f"Déploiement terminé sur {disk.path}")
     return manifest
 

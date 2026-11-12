@@ -3,6 +3,7 @@ import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 from clonix import disks as dk
 from clonix import fsclone as fc
@@ -601,3 +602,37 @@ class VerifyProgressTest(unittest.TestCase):
         r.cancel()
         with self.assertRaises(Cancelled):
             cb(60, 100)
+
+
+class KernelTableCheckTest(unittest.TestCase):
+    def test_matching_geometry_passes(self):
+        r = FakeRunner()
+        r.geometry = {"/dev/sdc1": (2048, 204800), "/dev/sdc2": (206848, 20971520),
+                      "/dev/sdc3": (21178368, 2097152), "/dev/sdc4": (23275520, 1048576)}
+        pt.write_table(r, dk.get_disk(r, "/dev/sdc"), GPT_DUMP)
+
+    def test_stale_kernel_table_stops_before_copy(self):
+        r = FakeRunner()
+        r.geometry = {"/dev/sdc3": (999, 1)}  # le noyau garde l'ancienne disposition
+        with mock.patch("clonix.partitions.time.sleep"):
+            with self.assertRaisesRegex(ClonixError, "pas pris en compte"):
+                pt.write_table(r, dk.get_disk(r, "/dev/sdc"), GPT_DUMP)
+        self.assertIn(["blockdev", "--rereadpt", "/dev/sdc"], r.commands("run"))
+
+
+class HibernatedCaptureTest(unittest.TestCase):
+    def test_warns_when_windows_was_not_shut_down(self):
+        from tests.fakes import lsblk_disk, lsblk_part, GIB
+
+        class Probe(FakeRunner):
+            def run(self, argv, **kw):
+                if argv[0] == "ntfs-3g.probe":
+                    raise CommandError(argv, 14, "Windows is hibernated")
+                return super().run(argv, **kw)
+
+        tree = [lsblk_disk("sda", 20 * GIB, [lsblk_part("sda2", 10 * GIB, "ntfs")])]
+        r = Probe(tree=tree, tools=["zstd", "partclone.ntfs", "ntfs-3g.probe"])
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        ops.capture(r, "/dev/sda", "win", tmp.name)
+        self.assertIn("powercfg /h off", r.reporter.out.getvalue())

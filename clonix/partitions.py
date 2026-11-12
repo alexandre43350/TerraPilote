@@ -1,6 +1,7 @@
 """Table de partitions (MBR/GPT) au format ``sfdisk --dump``."""
 
 import re
+import time
 from dataclasses import dataclass
 
 from clonix.disks import part_number, part_path
@@ -156,7 +157,43 @@ def write_table(runner, disk, dump_text, new_uuids=False):
     runner.run(["wipefs", "--all", "--force", disk.path])
     runner.run(["sfdisk", "--force", "--no-reread", disk.path], input=script)
     reload_partitions(runner, disk.path)
+    check_kernel_table(runner, disk.path, table)
     return table
+
+
+def _mismatches(runner, disk_path, table):
+    """Partitions dont la position vue par Linux diffère de la table écrite."""
+    factor = table.sector_size // 512  # sysfs compte en secteurs de 512 octets
+    bad = []
+    for e in table.entries:
+        geo = runner.partition_geometry(part_path(disk_path, e.number))
+        if geo is None:
+            continue  # information indisponible (simulation) : pas de contrôle
+        if geo != (e.start * factor, e.size * factor):
+            bad.append(e.number)
+    return bad
+
+
+def check_kernel_table(runner, disk_path, table):
+    """Vérifie que Linux utilise bien la nouvelle table avant d'écrire les données.
+
+    Si le noyau garde l'ancienne disposition, les partitions seraient écrites au
+    mauvais endroit et Windows ne démarrerait pas.
+    """
+    if runner.dry_run:
+        return
+    for attempt in range(3):
+        bad = _mismatches(runner, disk_path, table)
+        if not bad:
+            return
+        runner.run(["blockdev", "--rereadpt", disk_path], check=False)
+        reload_partitions(runner, disk_path)
+        time.sleep(1 + attempt)
+    raise ClonixError(
+        f"Linux n'a pas pris en compte la nouvelle table de partitions de {disk_path} "
+        f"(partitions {', '.join(map(str, bad))}). Rien n'a été copié : redémarrez le PC "
+        "sur la clé et relancez le déploiement."
+    )
 
 
 def save_boot_area(runner, disk_path, table):

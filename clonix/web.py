@@ -47,6 +47,7 @@ class Job:
         self.state = "running"
         self.error = None
         self.logs = collections.deque(maxlen=400)
+        self.warnings = []
         self.progress = None
         self.started = time.time()
         self.finished = None
@@ -62,7 +63,8 @@ class Job:
     def as_dict(self):
         return {
             "id": self.id, "kind": self.kind, "title": self.title, "state": self.state,
-            "error": self.error, "logs": list(self.logs), "progress": self.progress,
+            "error": self.error, "warnings": list(self.warnings), "logs": list(self.logs),
+            "progress": self.progress,
             "started": self.started, "finished": self.finished,
         }
 
@@ -73,6 +75,10 @@ class _JobReporter:
 
     def log(self, message):
         self.job.log(message)
+
+    def warn(self, message):
+        self.job.warnings.append(str(message))
+        self.job.log(f"⚠ {message}")
 
     def progress(self, p):
         self.job.progress_update(p)

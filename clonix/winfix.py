@@ -20,14 +20,26 @@ Seule la copie déployée est modifiée, jamais l'image ni le PC source.
 """
 
 import os
+import re
 import struct
 import tempfile
 
 from clonix import disks as dk
 from clonix.errors import ClonixError
 
+# Pilotes de disque standard de Windows, toujours présents : NVMe et SATA AHCI.
 STORAGE_DRIVERS = ("stornvme", "storahci")
+# Pilotes Intel RST, présents seulement s'ils ont été installés. iaStorVD et
+# iaStorAC gèrent Intel VMD.
+INTEL_DRIVERS = ("iaStorVD", "iaStorAC", "iaStorAVC", "iaStorV")
+VMD_DRIVERS = ("iastorvd", "iastorac")
 REG_DWORD = 4
+VMD_HELP = (
+    "Ce PC utilise Intel VMD (réglage du BIOS), mais le Windows de l'image n'a pas le "
+    "pilote Intel RST VMD : il plantera avec INACCESSIBLE_BOOT_DEVICE. Dans le BIOS de "
+    "ce PC, désactivez Intel VMD (souvent Configuration → Storage / Stockage → VMD → "
+    "Disabled), puis démarrez Windows."
+)
 
 
 def _ci_children(parent, name):
@@ -63,15 +75,29 @@ def _load_hivex():
     return hivex
 
 
-def enable_storage_drivers(hive_path, hivex_mod=None):
-    """Active les pilotes de disque standard dans la ruche SYSTEM.
+def uses_intel_vmd(disk_path, sysfs="/sys/block"):
+    """Le disque est-il derrière un contrôleur Intel VMD ?
 
-    Retourne la liste des modifications (texte) ; lève une erreur si aucun
-    pilote n'a été trouvé (ce n'est alors pas une ruche SYSTEM de Windows).
+    Sous Linux, les disques derrière VMD apparaissent dans un domaine PCI à
+    partir de 10000 (ex. /sys/devices/pci0000:00/…/pci10000:00/…/nvme0).
+    """
+    try:
+        real = os.path.realpath(os.path.join(sysfs, os.path.basename(disk_path), "device"))
+    except OSError:
+        return False
+    return bool(re.search(r"/pci1[0-9a-f]{4}:", real))
+
+
+def enable_storage_drivers(hive_path, hivex_mod=None):
+    """Active les pilotes de disque dans la ruche SYSTEM.
+
+    Retourne (modifications, pilotes trouvés). Lève une erreur si aucun pilote
+    standard n'a été trouvé (ce n'est alors pas une ruche SYSTEM de Windows).
     """
     hivex_mod = hivex_mod or _load_hivex()
     h = hivex_mod.Hivex(hive_path, write=True)
     changes = []
+    found = set()
     for control_set in h.node_children(h.root()):
         cs_name = h.node_name(control_set)
         if not cs_name.lower().startswith("controlset"):
@@ -79,20 +105,21 @@ def enable_storage_drivers(hive_path, hivex_mod=None):
         services = _child(h, control_set, "Services")
         if services is None:
             continue
-        for driver in STORAGE_DRIVERS:
+        for driver in STORAGE_DRIVERS + INTEL_DRIVERS:
             node = _child(h, services, driver)
             if node is None:
                 continue
+            found.add(driver.lower())
             h.node_set_value(node, {"key": "Start", "t": REG_DWORD, "value": struct.pack("<I", 0)})
             changes.append(f"{cs_name}\\Services\\{driver} : démarrage automatique")
             override = _child(h, node, "StartOverride")
             if override is not None:
                 h.node_delete_child(override)
                 changes.append(f"{cs_name}\\Services\\{driver} : StartOverride supprimé")
-    if not changes:
+    if not found.intersection(d.lower() for d in STORAGE_DRIVERS):
         raise ClonixError("Aucun pilote de disque Windows trouvé dans le registre")
     h.commit(None)
-    return changes
+    return changes, found
 
 
 def adapt(runner, disk_path, hivex_mod=None):
@@ -122,9 +149,12 @@ def adapt(runner, disk_path, hivex_mod=None):
                 if not hive:
                     continue
                 runner.log(f"Adaptation de Windows ({part.path}) à ce PC…")
-                changes = enable_storage_drivers(hive, hivex_mod)
+                changes, found = enable_storage_drivers(hive, hivex_mod)
                 for line in changes:
                     runner.log(f"  {line}")
+                if uses_intel_vmd(disk.path) and not found.intersection(VMD_DRIVERS):
+                    runner.warn(VMD_HELP)
+                runner.log("✓ Windows adapté à ce PC : pilotes de disque activés au démarrage.")
                 return changes
             finally:
                 runner.run(["sync"], check=False)

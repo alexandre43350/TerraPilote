@@ -100,6 +100,12 @@ class WebTest(unittest.TestCase):
         self.assertEqual(job["state"], "error")
         self.assertIn("Aucune image", job["error"])
 
+    def test_job_warnings_are_exposed(self):
+        self.app.start("verify", "test", lambda r: r.warn("Désactivez VMD"))
+        job = self.wait_job()
+        self.assertEqual(job["state"], "done")
+        self.assertEqual(job["warnings"], ["Désactivez VMD"])
+
     def test_bad_image_name(self):
         status, err = self.call("/api/capture", {"disk": "/dev/sda", "name": "../x"})
         self.assertEqual(status, 400)
