@@ -148,7 +148,7 @@ rend de nouveau utilisable. Une seule fois, sous Windows :
    sa section `control` (ou `control_uefi` si elle existe : elle est prioritaire
    en démarrage UEFI). La seconde supprime le menu « Boot in normal mode… » :
    Clonix démarre directement dès que vous le choisissez dans Ventoy.
-   Le fichier fourni lance aussi Clonix **tout seul après 3 secondes**
+   Le fichier fourni lance aussi Clonix **tout seul après 5 secondes**
    (`VTOY_DEFAULT_IMAGE` et `VTOY_MENU_TIMEOUT`) : appuyez sur une touche pendant
    le compte à rebours pour choisir un autre ISO. Cela suppose que l'ISO est à la
    racine de la clé sous le nom `clonix.iso` ; sinon, adaptez le chemin.
