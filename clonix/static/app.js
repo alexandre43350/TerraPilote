@@ -187,6 +187,9 @@ function render() {
     h("div", { class: "label" }, "Dépôt d'images"),
     h("div", { class: "title" }, h("span", { class: "dot" + (st.mounted ? " ok" : "") }), st.mounted ? (st.source || st.dir) : "Non monté"),
     h("div", { class: "sub" }, st.mounted ? `${size(st.free)} libres · ${st.fstype || "local"}` : "Choisissez où lire et écrire les images"),
+    st.mounted && st.usb_speed ? (st.usb_speed <= 480
+      ? h("div", { class: "usb-warn" }, "⚠ Relié en USB 2 (lent). Éteignez, rebranchez le câble à fond sur un port USB 3, redémarrez.")
+      : h("div", { class: "sub" }, `Relié en USB ${st.usb_speed >= 10000 ? "3.2" : "3"} (${st.usb_speed / 1000} Gbit/s) ✓`)) : null,
     st.mounted ? h("div", { class: "meter" }, h("div", { style: `width:${Math.max(used * 100, 2)}%` })) : null,
     h("button", { class: "btn" + (st.mounted ? "" : " primary"), onclick: () => storageDialog() }, st.mounted ? "Changer de dépôt" : "Configurer le dépôt"));
   $("#side-net").replaceChildren(icon("net"), S.interface ? `Interface ${S.interface}` : "Aucun réseau");

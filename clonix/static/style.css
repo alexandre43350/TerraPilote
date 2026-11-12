@@ -81,6 +81,7 @@ svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width:
 .side-card .meter { height: 6px; border-radius: 6px; background: rgba(255,255,255,.06); margin: 12px 0 6px; overflow: hidden; }
 .side-card .meter div { height: 100%; background: linear-gradient(90deg, var(--accent-lo), var(--accent-hi)); border-radius: 6px; }
 .side-card .btn { width: 100%; margin-top: 12px; padding: 9px 12px; font-size: 13.5px; }
+.usb-warn { margin-top: 8px; padding: 8px 10px; border-radius: 10px; font-size: 12.5px; color: #ffe2b0; background: rgba(246,185,85,.1); border: 1px solid rgba(246,185,85,.4); }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); box-shadow: 0 0 0 4px rgba(255,107,107,.14); flex: none; }
 .dot.ok { background: var(--accent); box-shadow: 0 0 0 4px rgba(61,220,151,.14); animation: pulse 2.4s infinite; }
 @keyframes pulse { 50% { box-shadow: 0 0 0 7px rgba(61,220,151,.05); } }

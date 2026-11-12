@@ -134,6 +134,7 @@ class App:
                 "source": _mount_source(r, self.image_dir) if mounted else "",
                 "free": _free_space(self.image_dir),
                 "clonix_key": bool(storage.find_data_partition(r)),
+                "usb_speed": _store_usb_speed(r, self.image_dir) if mounted else None,
             },
             "disks": disks,
             "images": images,
@@ -314,6 +315,12 @@ def _mount_source(runner, path):
 def _addresses(runner):
     out = runner.run(["ip", "-4", "-o", "addr", "show", "scope", "global"], readonly=True, check=False)
     return [line.split()[3].split("/")[0] for line in out.splitlines() if len(line.split()) > 3]
+
+
+def _store_usb_speed(runner, path):
+    """Vitesse du lien USB du support du dépôt (Mbit/s), ou None."""
+    disk = dk.disk_of_mount(runner, path)
+    return dk.usb_speed(disk) if disk else None
 
 
 def _free_space(path):
