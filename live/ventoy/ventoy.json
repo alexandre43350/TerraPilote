@@ -1,6 +1,8 @@
 {
     "control": [
         { "VTOY_LINUX_REMOUNT": "1" },
-        { "VTOY_SECONDARY_BOOT_MENU": "0" }
+        { "VTOY_SECONDARY_BOOT_MENU": "0" },
+        { "VTOY_DEFAULT_IMAGE": "/clonix.iso" },
+        { "VTOY_MENU_TIMEOUT": "3" }
     ]
 }
