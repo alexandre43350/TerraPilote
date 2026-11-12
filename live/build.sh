@@ -40,7 +40,7 @@ lb config \
 
 cp -a /src/live/config/. config/
 # Les droits d'exécution peuvent manquer si le dépôt vient de Windows.
-chmod 755 config/hooks/live/*.hook.chroot config/includes.chroot/usr/local/bin/*
+chmod 755 config/hooks/live/*.hook.* config/includes.chroot/usr/local/bin/*
 mkdir -p config/includes.chroot/opt/clonix
 cp -a /src/clonix config/includes.chroot/opt/clonix/
 find config/includes.chroot/opt -name __pycache__ -prune -exec rm -rf {} +
