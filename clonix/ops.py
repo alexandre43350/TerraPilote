@@ -115,7 +115,9 @@ def capture(runner, disk_path, name, image_dir=None, compression="zstd", level="
     parent = os.path.dirname(dest)
     if os.path.isdir(parent) and dk.disk_of_mount(runner, parent) == disk.path:
         raise ClonixError("Le dépôt d'images est sur le disque à capturer")
-    level = fc.choose_level(level, dk.fstype_of_mount(runner, parent) if os.path.isdir(parent) else "")
+    store_disk = dk.disk_of_mount(runner, parent) if os.path.isdir(parent) else None
+    level = fc.choose_level(level, dk.fstype_of_mount(runner, parent) if os.path.isdir(parent) else "",
+                            on_usb=bool(store_disk and dk.usb_speed(store_disk) is not None))
     comp = fc.compress_cmd(compression, level)
     if comp and not runner.which(comp[0]):
         raise ClonixError(f"Compresseur introuvable : {compression}")

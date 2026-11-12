@@ -46,12 +46,18 @@ COMPRESSORS = {
 }
 
 
-def choose_level(level, image_fstype):
-    """Niveau « auto » : zstd -1 (le plus rapide) sur un disque local, adaptatif
-    sur un partage réseau où c'est le débit du réseau qui limite."""
+def choose_level(level, image_fstype, on_usb=False):
+    """Niveau « auto ».
+
+    - disque interne : zstd -1, le plus rapide ;
+    - partage réseau ou support USB : niveau adaptatif. C'est alors l'écriture
+      qui limite (réseau, ou SSD USB dont l'écriture chute une fois son cache
+      plein) : zstd compresse davantage quand la sortie ralentit, donc écrit
+      moins d'octets, et revient à un niveau rapide quand elle suit.
+    """
     if level != "auto":
         return level
-    return "adapt" if image_fstype in NETWORK_FS else 1
+    return "adapt" if image_fstype in NETWORK_FS or on_usb else 1
 
 
 def partclone_flags(supports, tool, capture=False):

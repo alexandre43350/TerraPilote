@@ -704,3 +704,10 @@ class ReadaheadTest(unittest.TestCase):
         self.addCleanup(os.rmdir, tmp)
         self.assertEqual(dk.tune_readahead(r, tmp), [])
         self.assertFalse([c for c in r.commands("run") if c[0] == "blockdev"])
+
+
+class AutoLevelUsbTest(unittest.TestCase):
+    def test_usb_store_uses_adaptive_level(self):
+        self.assertEqual(fc.choose_level("auto", "exfat", on_usb=True), "adapt")
+        self.assertEqual(fc.choose_level("auto", "ext4", on_usb=False), 1)
+        self.assertEqual(fc.choose_level("6", "exfat", on_usb=True), "6")

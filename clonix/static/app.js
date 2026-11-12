@@ -358,7 +358,7 @@ function wizardCapture(step = 0, sel = {}) {
       h("div", { class: "field" }, h("label", {}, "Nom de l'image"), name),
       h("div", { class: "field" }, h("label", {}, "Description"), desc)),
     h("div", { class: "field" }, h("label", {}, "Compression"), seg,
-      h("p", { class: "note" }, "Auto : compression la plus rapide sur un disque local, adaptée au débit sur un partage réseau. Seuls les blocs utilisés sont copiés.")),
+      h("p", { class: "note" }, "Auto : compression la plus rapide sur un disque interne, adaptée à la vitesse d\'écriture sur une clé ou un disque USB et sur un partage réseau. Seuls les blocs utilisés sont copiés.")),
     hasNtfs ? h("label", { class: "check" }, slimBox, h("span", {},
       h("strong", {}, "Alléger l'image (modifie le PC source). "),
       "Retire le fichier de veille prolongée et le fichier d'échange de Windows (souvent 5 à 20 Go), que Windows recrée tout seul. Capture plus rapide et image plus petite, comme AOMEI ou Acronis.")) : null,
