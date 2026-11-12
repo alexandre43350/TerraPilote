@@ -2,7 +2,7 @@
 #
 #   powershell -ExecutionPolicy Bypass -File live\build.ps1
 #
-# Resultat : live\out\clonix-AAAAMMJJ.iso
+# Resultat : live\out\clonix.iso
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 

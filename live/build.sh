@@ -7,7 +7,7 @@
 # et Windows (Docker Desktop : lancer plutôt live\build.ps1 depuis PowerShell).
 # La clé produite est toujours pour PC x86-64 (amd64).
 #
-# Résultat : live/out/clonix-AAAAMMJJ.iso, à copier sur une clé avec
+# Résultat : live/out/clonix.iso, à copier sur une clé avec
 # Balena Etcher, Rufus (mode DD) ou :  dd if=clonix.iso of=/dev/sdX bs=4M
 set -eu
 
@@ -36,7 +36,7 @@ lb config \
     --chroot-squashfs-compression-type zstd \
     --iso-application Clonix \
     --iso-volume CLONIX \
-    --bootappend-live "boot=live components quiet loglevel=3 modprobe.blacklist=pcspkr locales=fr_FR.UTF-8 keyboard-layouts=fr timezone=Europe/Paris live-config.noautologin"
+    --bootappend-live "boot=live components quiet loglevel=3 modprobe.blacklist=pcspkr locales=fr_FR.UTF-8 keyboard-layouts=fr timezone=Europe/Paris live-config.noautologin noeject"
 
 cp -a /src/live/config/. config/
 # Les droits d'exécution peuvent manquer si le dépôt vient de Windows.
@@ -48,5 +48,6 @@ find config/includes.chroot/opt -name __pycache__ -prune -exec rm -rf {} +
 lb build
 
 mkdir -p /src/live/out
-cp ./*.iso "/src/live/out/clonix-$(date +%Y%m%d).iso"
-echo "ISO prête : live/out/clonix-$(date +%Y%m%d).iso"
+# Nom fixe : sur une clé Ventoy, il suffit de remplacer le fichier à chaque version.
+cp ./*.iso /src/live/out/clonix.iso
+echo "ISO prête : live/out/clonix.iso"

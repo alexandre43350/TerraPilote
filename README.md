@@ -86,11 +86,11 @@ passe par l'émulation x86 et prend plus longtemps (30 à 60 min).
 ./live/build.sh
 ```
 
-L'image `live/out/clonix-AAAAMMJJ.iso` (hybride BIOS + UEFI) se copie sur une
+L'image `live/out/clonix.iso` (hybride BIOS + UEFI) se copie sur une
 clé avec Balena Etcher, Rufus (mode DD) ou :
 
 ```bash
-sudo dd if=live/out/clonix-AAAAMMJJ.iso of=/dev/sdX bs=4M conv=fsync status=progress
+sudo dd if=live/out/clonix.iso of=/dev/sdX bs=4M conv=fsync status=progress
 ```
 
 Sur Mac, le plus simple est [balenaEtcher](https://etcher.balena.io/) ; ou en
@@ -99,7 +99,7 @@ ligne de commande (remplacez `diskN` par le numéro de la clé donné par
 
 ```bash
 diskutil unmountDisk /dev/diskN
-sudo dd if=live/out/clonix-AAAAMMJJ.iso of=/dev/rdiskN bs=4m
+sudo dd if=live/out/clonix.iso of=/dev/rdiskN bs=4m
 ```
 
 La clé est basée sur Debian 13 (trixie, noyau 6.12) et contient partclone, zstd, udpcast,
@@ -117,7 +117,7 @@ courants.
    powershell -ExecutionPolicy Bypass -File live\build.ps1
    ```
 
-3. Écrivez `live\out\clonix-AAAAMMJJ.iso` sur la clé avec
+3. Écrivez `live\out\clonix.iso` sur la clé avec
    [Rufus](https://rufus.ie/) : choisissez la clé, l'ISO, puis **« Écrire en mode
    Image DD »** quand Rufus le demande (le mode ISO ne fonctionnera pas), ou avec
    [balenaEtcher](https://etcher.balena.io/).
@@ -143,9 +143,11 @@ rend de nouveau utilisable. Une seule fois, sous Windows :
    conservés) : il faut une version récente (1.0.97 ou plus).
 2. Sur la clé, créez un dossier **`ventoy`** (s'il n'existe pas) et copiez-y le
    fichier [`live/ventoy/ventoy.json`](live/ventoy/ventoy.json) du projet. Si
-   vous avez déjà un `ventoy.json`, ajoutez simplement la ligne
-   `{ "VTOY_LINUX_REMOUNT": "1" }` dans sa section `control` (ou `control_uefi`
-   si elle existe : elle est prioritaire en démarrage UEFI).
+   vous avez déjà un `ventoy.json`, ajoutez simplement les lignes
+   `{ "VTOY_LINUX_REMOUNT": "1" }` et `{ "VTOY_SECONDARY_BOOT_MENU": "0" }` dans
+   sa section `control` (ou `control_uefi` si elle existe : elle est prioritaire
+   en démarrage UEFI). La seconde supprime le menu « Boot in normal mode… » :
+   Clonix démarre directement dès que vous le choisissez dans Ventoy.
 3. Copiez l'ISO de Clonix à la racine de la clé, comme d'habitude.
 
 Au démarrage, Clonix monte automatiquement la partition Ventoy comme dépôt. Les

@@ -1,5 +1,6 @@
 {
     "control": [
-        { "VTOY_LINUX_REMOUNT": "1" }
+        { "VTOY_LINUX_REMOUNT": "1" },
+        { "VTOY_SECONDARY_BOOT_MENU": "0" }
     ]
 }

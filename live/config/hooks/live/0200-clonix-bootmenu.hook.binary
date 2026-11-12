@@ -1,0 +1,41 @@
+#!/bin/sh
+# Exécuté sur l'arborescence finale de l'ISO, juste avant sa création.
+#
+# 1. Pas de son au menu de démarrage : les menus Debian jouent une petite
+#    mélodie (accessibilité) avec la commande GRUB « play », et certains menus
+#    syslinux contiennent le caractère « cloche » (^G).
+# 2. Démarrage direct : le menu de la clé lance tout de suite sa première entrée
+#    (le système Clonix), sans attendre d'appui sur Entrée.
+set -e
+
+# --- 1. silence, dans tous les fichiers de menus
+find . -type f -name '*.cfg' | while IFS= read -r f; do
+    sed -i \
+        -e '/^[[:space:]]*play[[:space:]]/d' \
+        -e '/^[[:space:]]*insmod[[:space:]][[:space:]]*play[[:space:]]*$/d' \
+        -e 's/\x07//g' \
+        "$f"
+done
+
+# --- 2a. GRUB (démarrage UEFI, et Ventoy)
+if [ -d boot/grub ]; then
+    if grep -rqs '^[[:space:]]*set[[:space:]][[:space:]]*timeout=' boot/grub --include='*.cfg'; then
+        find boot/grub -type f -name '*.cfg' -exec \
+            sed -i 's/^\([[:space:]]*set[[:space:]][[:space:]]*timeout=\).*/\10/' {} +
+    elif [ -f boot/grub/grub.cfg ]; then
+        sed -i '1i set default=0\nset timeout=0' boot/grub/grub.cfg
+    fi
+fi
+
+# --- 2b. syslinux / isolinux (démarrage BIOS) : timeout en dixièmes de seconde,
+#         0 voulant dire « attendre indéfiniment ».
+for dir in isolinux syslinux; do
+    [ -d "$dir" ] || continue
+    find "$dir" -type f -name '*.cfg' -exec \
+        sed -i -e 's/^\([[:space:]]*timeout[[:space:]][[:space:]]*\).*/\11/' \
+               -e 's/^\([[:space:]]*prompt[[:space:]][[:space:]]*\).*/\10/' {} +
+    main="$dir/$dir.cfg"
+    if [ -f "$main" ] && ! grep -qs '^[[:space:]]*timeout[[:space:]]' "$main"; then
+        printf 'prompt 0\ntimeout 1\n' >> "$main"
+    fi
+done
