@@ -84,6 +84,8 @@ class DemoRunner(Runner):
             if argv[2] in DUMPS:
                 return DUMPS[argv[2]]
             return DUMPS["/dev/nvme0n1"].replace("/dev/nvme0n1p", argv[2] + "")
+        if argv[0] == "ntfsresize" and "--info" in argv:
+            return "Space in use       : 48000 MB (20.2%)\n"
         if not readonly:
             self.log(f"  $ {' '.join(argv)}")
             time.sleep(0.2)
@@ -129,7 +131,7 @@ class DemoApp(App):
         ops.capture(seed, "/dev/nvme0n1", "windows11-poste-type", self.tmp.name,
                     description="Windows 11 Pro 24H2 + Office, sysprep")
         ops.capture(seed, "/dev/nvme0n1", "salle-info-2026", self.tmp.name,
-                    description="Image salle informatique")
+                    description="Image salle informatique", resizable=True)
 
     def state(self):
         s = super().state()

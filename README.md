@@ -15,7 +15,7 @@ et diffusion **multicast** vers tout un parc en une seule transmission.
 | Fonction | Ce qu'elle fait |
 |---|---|
 | **Capturer** | Sauvegarde un disque complet (table de partitions, zone d'amorçage, partitions) dans une image compressée, avec somme SHA-256 par fichier. |
-| **Déployer** | Restaure une image sur un disque de même taille ou plus grand. |
+| **Déployer** | Restaure une image sur un disque plus grand (la partition Windows est agrandie pour utiliser tout le disque), de même taille, ou plus petit avec une « image adaptable ». |
 | **Cloner** | Copie un disque directement sur un autre, sans passer par une image. |
 | **Diffuser / Recevoir** | Envoie une image à N PC en même temps (udpcast) : une seule transmission réseau, quel que soit le nombre de postes. |
 | **Vérifier** | Relit une image et contrôle toutes ses sommes SHA-256. |
@@ -24,6 +24,27 @@ Systèmes de fichiers copiés « intelligemment » (seulement les blocs utilisé
 partclone) : NTFS, FAT/EFI, exFAT, ext2/3/4, Btrfs, XFS, F2FS, HFS+. Le reste
 (BitLocker, LUKS, LVM, partitions sans système de fichiers) est copié bloc à bloc.
 Tables MBR et GPT, démarrage BIOS et UEFI.
+
+## Disque cible plus grand ou plus petit
+
+- **Disque plus grand** : par défaut, la partition principale (Windows, ou la plus
+  grande partition ext) est agrandie pour occuper tout le disque. La partition de
+  récupération de Windows est déplacée en fin de disque avec ses identifiants.
+  Option « Utiliser tout le disque » à décocher pour garder les tailles d'origine
+  (`clonix deploy --no-expand`).
+- **Disque plus petit** : cochez à la capture **« Image adaptable aux disques plus
+  petits »** (`clonix capture --resizable`). La partition Windows est alors
+  enregistrée **fichier par fichier** au format WIM (celui de Microsoft, via
+  wimlib) au lieu de bloc par bloc. Au déploiement, Clonix recrée la partition à
+  la taille du disque cible, la formate et y recopie les fichiers (droits, liens,
+  flux secondaires compris). Il faut un disque au moins aussi grand que les
+  données + 10 % + 4 Gio : la taille minimale est affichée sur l'image.
+  Le fichier d'échange, le fichier de veille prolongée et les points de
+  restauration ne sont pas copiés (Windows recrée les deux premiers).
+- Une image classique (bloc par bloc) ne peut pas aller sur un disque plus petit :
+  Windows répartit ses données sur toute la partition.
+- L'image adaptable demande un disque en GPT (démarrage UEFI, cas de tous les PC
+  récents). La capture est un peu plus lente qu'en mode bloc.
 
 ## Vitesse
 
@@ -245,9 +266,8 @@ que vous administrez.
 
 ## Limites actuelles
 
-- Le disque cible doit être au moins aussi grand que l'espace partitionné du
-  disque source (pas de réduction de partitions). Sur un disque plus grand,
-  l'espace en plus reste libre.
+- Disque plus petit : seulement avec une image adaptable (GPT/UEFI, Windows non
+  chiffré par BitLocker). Le clonage direct disque à disque garde les tailles.
 - Pas de démarrage réseau (PXE) : chaque PC récepteur démarre sur une clé.
 
 ## Développement

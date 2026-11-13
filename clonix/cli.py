@@ -56,7 +56,8 @@ def cmd_images(runner, args):
 
 def cmd_capture(runner, args):
     ops.capture(runner, args.disk, args.name, args.dir, compression=args.compression,
-                level=args.level, description=args.description, slim=args.slim)
+                level=args.level, description=args.description, slim=args.slim,
+                resizable=args.resizable)
     return 0
 
 
@@ -64,6 +65,7 @@ def cmd_deploy(runner, args):
     source = ops.open_image(args.name, args.dir)
     ops.deploy(
         runner, source, args.disk, args.dir, new_uuids=args.new_uuids, adapt_windows=args.adapt,
+        expand=args.expand,
         confirm=lambda m, d: ask_erase(d, f"déploiement de l'image « {m['name']} »", args.yes or runner.dry_run),
     )
     return 0
@@ -105,7 +107,8 @@ def cmd_mcast_recv(runner, args):
     disk = dk.get_disk(runner, args.disk)
     dk.check_writable_target(runner, disk)
     ask_erase(disk, "réception d'une image multicast", args.yes or runner.dry_run)
-    mc.receive(runner, disk.path, new_uuids=args.new_uuids, adapt_windows=args.adapt, **_net_opts(args))
+    mc.receive(runner, disk.path, new_uuids=args.new_uuids, adapt_windows=args.adapt, expand=args.expand,
+               **_net_opts(args))
     return 0
 
 
@@ -228,6 +231,8 @@ def build_parser():
     sp.add_argument("--description", default="")
     sp.add_argument("--slim", action="store_true",
                     help="retirer hiberfil.sys et pagefile.sys de Windows avant la capture (recréés par Windows)")
+    sp.add_argument("--resizable", action="store_true",
+                    help="image adaptable aux disques plus petits : partition Windows copiée fichier par fichier (WIM)")
 
     sp_deploy = add("deploy", cmd_deploy, "restaurer une image sur un disque")
     sp_deploy.add_argument("name", help="nom ou chemin de l'image")
@@ -261,6 +266,8 @@ def build_parser():
     for s in (sp_deploy, sp5):
         s.add_argument("--no-adapt", dest="adapt", action="store_false",
                        help="ne pas adapter Windows au PC après le déploiement")
+        s.add_argument("--no-expand", dest="expand", action="store_false",
+                       help="garder la taille des partitions de l'image sur un disque plus grand")
 
     sp10 = add("bench", cmd_bench, "tester les vitesses (disque du PC, support des images, processeur)")
     sp10.add_argument("disk", help="disque du PC, ex. /dev/nvme0n1 (lu seulement)")

@@ -40,6 +40,7 @@ _PC_DONE = re.compile(r"Completed:\s*([\d.]+)%")
 _PC_RATE = re.compile(r"([\d.]+)\s*([KMGT]?)i?B/min")
 _PC_LEFT = re.compile(r"Remaining:\s*(\d+):(\d+):(\d+)")
 _DD_BYTES = re.compile(r"^(\d+) bytes")
+_WIM = re.compile(r"(\d+) (bytes|[KMGT]iB) of (\d+) (bytes|[KMGT]iB)\b")
 _UNITS = {"": 1, "K": 1024, "M": 1024 ** 2, "G": 1024 ** 3, "T": 1024 ** 4}
 
 
@@ -53,6 +54,8 @@ def progress_kind(argv):
         return "partclone"
     if name == "dd" and "status=progress" in argv:
         return "dd"
+    if name == "wimlib-imagex":
+        return "wimlib"
     return None
 
 
@@ -77,6 +80,15 @@ def parse_partclone(line):
         h, mi, s = (int(x) for x in t.groups())
         left = h * 3600 + mi * 60 + s
     return min(float(m.group(1)) / 100, 1.0), rate, left
+
+
+def parse_wimlib(line):
+    """« Archiving file data: 120 MiB of 900 MiB (13%) done » → (fait, total) en octets."""
+    m = _WIM.search(line)
+    if not m:
+        return None
+    unit = lambda u: 1 if u == "bytes" else _UNITS[u[0]]  # noqa: E731
+    return int(m.group(1)) * unit(m.group(2)), int(m.group(3)) * unit(m.group(4))
 
 
 def parse_dd(line):
@@ -140,6 +152,7 @@ class Runner:
         self._step = -1
         self._step_started = 0.0
         self._help_cache = {}
+        self.last_wim_total = None  # volume de fichiers copié par la dernière commande wimlib
 
     # ----------------------------------------------------------- rapports
     def log(self, message):
@@ -296,9 +309,15 @@ class Runner:
                 stdin = subprocess.PIPE if (first and feed is not None) else prev_stdout
                 stdout = subprocess.PIPE if (not last or sink is not None) else None
                 kind = progress_kind(argv)
+                stderr = subprocess.PIPE if kind else None
+                merged = kind == "wimlib" and stdout is None
+                if merged:
+                    # wimlib affiche sa progression sur la sortie standard quand
+                    # celle-ci ne transporte pas l'image (application d'une image).
+                    stdout, stderr = subprocess.PIPE, subprocess.STDOUT
                 try:
                     p = subprocess.Popen(argv, stdin=stdin, stdout=stdout, env=C_LOCALE,
-                                         stderr=subprocess.PIPE if kind else None)
+                                         stderr=stderr)
                 except FileNotFoundError:
                     raise ClonixError(f"Outil introuvable : {argv[0]}") from None
                 self._track(p)
@@ -310,7 +329,8 @@ class Runner:
                 prev_stdout = p.stdout
                 if kind:
                     tails[i] = []
-                    w = threading.Thread(target=self._watch, args=(p.stderr, kind, total, tails[i]),
+                    w = threading.Thread(target=self._watch,
+                                         args=(p.stdout if merged else p.stderr, kind, total, tails[i]),
                                          daemon=True)
                     w.start()
                     watchers.append(w)
@@ -374,6 +394,13 @@ class Runner:
             parsed = parse_partclone(line)
             if parsed:
                 self.emit(*parsed)
+                return
+        elif kind == "wimlib":
+            parsed = parse_wimlib(line)
+            if parsed:
+                done, wim_total = parsed
+                self.last_wim_total = wim_total
+                self.emit(min(done / wim_total, 1.0) if wim_total else 0.0, done_bytes=done)
                 return
         else:
             n = parse_dd(line)

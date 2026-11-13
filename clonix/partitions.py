@@ -136,6 +136,71 @@ def rewrite_dump(text, target_disk, new_uuids=False):
     return "\n".join(out) + "\n"
 
 
+ALIGN_BYTES = 1024 * 1024  # alignement des partitions (1 Mio, comme Windows)
+MBR_MAX_SECTORS = 2 ** 32  # limite d'adressage d'une table MBR
+
+
+def _set_field(fields, key, value):
+    if re.search(rf"\b{key}\s*=", fields):
+        return re.sub(rf"\b{key}\s*=\s*[^,]*", f"{key}={value}", fields, count=1)
+    return f"{fields}, {key}={value}"
+
+
+def relayout(text, disk_bytes, number, min_bytes=0):
+    """Redimensionne la partition ``number`` pour remplir ``disk_bytes``.
+
+    Les partitions situées avant gardent leur place ; celles situées après
+    (partition de récupération de Windows…) gardent leur taille, leur ordre et
+    leurs identifiants, et sont déplacées en fin de disque. La partition
+    ``number`` reçoit tout l'espace restant, qu'il soit plus grand (disque plus
+    gros) ou plus petit (disque plus petit) que dans l'image.
+
+    Retourne ``(dump modifié, nouvelle taille en octets)``. Lève une erreur si la
+    partition ne peut pas descendre à ``min_bytes``.
+    """
+    table = parse_dump(text)
+    if any(str(e.type).lower() in ("5", "f", "85") for e in table.entries):
+        raise ClonixError("Table MBR avec partitions étendues : redimensionnement non pris en charge")
+    ss = table.sector_size
+    align = max(ALIGN_BYTES // ss, 1)
+    total = disk_bytes // ss
+    if table.label == "gpt":
+        end_limit = total - GPT_BACKUP_SECTORS - 1
+    else:
+        end_limit = min(total, MBR_MAX_SECTORS)
+    end_limit -= end_limit % align
+    target = next((e for e in table.entries if e.number == number), None)
+    if target is None:
+        raise ClonixError(f"Partition {number} absente de la table")
+    after = sorted((e for e in table.entries if e.start > target.start), key=lambda e: e.start)
+    after_total = sum(-(-e.size // align) * align for e in after)
+    new_end = end_limit - after_total
+    new_end -= new_end % align
+    new_size = new_end - target.start
+    if new_size * ss < max(min_bytes, 1):
+        need = target.start * ss + max(min_bytes, 1) + after_total * ss + (GPT_BACKUP_SECTORS + align) * ss
+        raise ClonixError(
+            f"Le disque est trop petit : il faut au moins {need / 1e9:.0f} Go pour cette image")
+    placed = {number: (target.start, new_size)}
+    pos = new_end
+    for e in after:
+        start = -(-pos // align) * align
+        placed[e.number] = (start, e.size)
+        pos = start + e.size
+
+    out = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        m = _LINE.match(line)
+        if m and m.group("dev").startswith("/") and part_number(m.group("dev")) in placed:
+            start, size = placed[part_number(m.group("dev"))]
+            fields = _set_field(_set_field(m.group("fields"), "start", start), "size", size)
+            out.append(f"{m.group('dev')} : {fields}")
+        else:
+            out.append(raw)
+    return "\n".join(out) + "\n", new_size * ss
+
+
 def dump_table(runner, disk_path):
     text = runner.run(["sfdisk", "--dump", disk_path], readonly=True)
     parse_dump(text)  # valide le format

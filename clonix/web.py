@@ -121,6 +121,8 @@ class App:
             })
         images = [{"name": n, "size": s, "created": m.get("created"), "description": m.get("description", ""),
                    "source": m.get("source", {}), "required": m.get("table", {}).get("required_bytes", 0),
+                   "min_required": m.get("table", {}).get("min_bytes") or m.get("table", {}).get("required_bytes", 0),
+                   "resizable": any(p.get("mode") == "wim" for p in m.get("partitions", [])),
                    "partitions": [{"number": p["number"], "fstype": p["fstype"], "size": p["size"],
                                    "mode": p["mode"]} for p in m.get("partitions", [])]}
                   for n, m, s in im.list_images(self.image_dir)]
@@ -203,7 +205,8 @@ class App:
                               lambda r: ops.capture(r, disk.path, image, d,
                                                     level=body.get("level", "auto"),
                                                     description=body.get("description", ""),
-                                                    slim=bool(body.get("slim", False))))
+                                                    slim=bool(body.get("slim", False)),
+                                                    resizable=bool(body.get("resizable", False))))
         if name == "deploy":
             disk = self._disk(body["disk"], writable=True)
             self._confirm(disk, body)
@@ -211,7 +214,8 @@ class App:
             return self.start("deploy", f"Déploiement de « {image} » → {disk.path}",
                               lambda r: ops.deploy(r, ops.open_image(image, d), disk.path, d,
                                                    new_uuids=bool(body.get("new_uuids")),
-                                                   adapt_windows=bool(body.get("adapt", True))))
+                                                   adapt_windows=bool(body.get("adapt", True)),
+                                                   expand=bool(body.get("expand", True))))
         if name == "clone":
             src = self._disk(body["source"], writable=False)
             dst = self._disk(body["target"], writable=True)
@@ -231,7 +235,8 @@ class App:
             self._confirm(disk, body)
             return self.start("mcast-recv", f"Réception multicast → {disk.path}",
                               lambda r: mc.receive(r, disk.path, interface=mc.default_interface(),
-                                                   adapt_windows=bool(body.get("adapt", True))))
+                                                   adapt_windows=bool(body.get("adapt", True)),
+                                                   expand=bool(body.get("expand", True))))
         if name == "verify":
             image = body["image"]
 

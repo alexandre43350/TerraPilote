@@ -8,6 +8,7 @@ gdisk
 parted
 dosfstools
 ntfs-3g
+wimtools
 chntpw
 python3-hivex
 openssl

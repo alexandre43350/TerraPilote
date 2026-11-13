@@ -3,6 +3,7 @@
 import io
 import json
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -42,7 +43,8 @@ def plan_partitions(runner, disk, table_text):
 # --------------------------------------------------------------------- capture
 
 
-MODE_LABELS = {"partclone": "blocs utilisés", "dd": "copie intégrale"}
+MODE_LABELS = {"partclone": "blocs utilisés", "dd": "copie intégrale", "wim": "fichier par fichier"}
+DATA_MODES = ("partclone", "dd", "wim")
 
 
 def _step_label(number, fstype, mode):
@@ -51,7 +53,7 @@ def _step_label(number, fstype, mode):
 
 def _data_steps(plan, sector_size):
     return [(_step_label(e.number, p.fstype, mode), e.size * sector_size)
-            for e, p, mode, _ in plan if mode in ("partclone", "dd")]
+            for e, p, mode, _ in plan if mode in DATA_MODES]
 
 
 WINDOWS_SCRATCH = ("pagefile.sys", "swapfile.sys")
@@ -105,8 +107,45 @@ def windows_not_shut_down(runner, part):
     return False
 
 
+GIB = 1024 ** 3
+WIM_MARGIN = 4 * GIB  # place libre laissée à Windows en plus de ses fichiers
+_NTFS_USED = re.compile(r"Space in use\s*:\s*(\d+)\s*MB")
+
+
+def ntfs_used_bytes(runner, part_path):
+    """Espace occupé d'un volume NTFS (lecture seule, sans montage), ou None."""
+    if not runner.which("ntfsresize"):
+        return None
+    try:
+        out = runner.run(["ntfsresize", "--info", "--force", "--no-progress-bar", part_path],
+                         readonly=True, check=False)
+    except ClonixError:
+        return None
+    m = _NTFS_USED.search(out or "")
+    return int(m.group(1)) * 1000 * 1000 if m else None
+
+
+def wim_min_size(used, part_size):
+    """Taille minimale de la partition Windows recréée : données + 10 % + 4 Gio."""
+    if not used:
+        return part_size
+    need = int(used * 1.1) + WIM_MARGIN
+    need = -(-need // pt.ALIGN_BYTES) * pt.ALIGN_BYTES
+    return min(need, part_size)
+
+
+def pick_resizable(plan, sector_size):
+    """La partition qui s'adapte à la taille du disque : la plus grande NTFS (C:)."""
+    best = None
+    for entry, part, mode, tool in plan:
+        if part.fstype in fc.WIM_FSTYPES and mode == "partclone":
+            if best is None or entry.size > best[0].size:
+                best = (entry, part, mode, tool)
+    return best
+
+
 def capture(runner, disk_path, name, image_dir=None, compression="zstd", level="auto", description="",
-            slim=False):
+            slim=False, resizable=False):
     disk = dk.get_disk(runner, disk_path)
     dk.check_readable_source(disk)
     dest = im.resolve(name, image_dir)
@@ -135,6 +174,21 @@ def capture(runner, disk_path, name, image_dir=None, compression="zstd", level="
                     "commandes en administrateur, éteignez le PC, puis recapturez.")
     table_text = pt.dump_table(runner, disk.path)
     table, plan = plan_partitions(runner, disk, table_text)
+    wim_number = None
+    if resizable:
+        chosen = pick_resizable(plan, table.sector_size)
+        if table.label != "gpt":
+            runner.warn("Image adaptable impossible : le disque n'est pas en GPT (démarrage UEFI). "
+                        "Image classique, à déployer sur un disque au moins aussi grand.")
+        elif chosen is None:
+            runner.warn("Image adaptable impossible : aucune partition Windows (NTFS) lisible. "
+                        "Image classique, à déployer sur un disque au moins aussi grand.")
+        elif not runner.which(fc.WIMLIB):
+            raise ClonixError("Outil introuvable : wimlib-imagex (paquet wimtools)")
+        else:
+            wim_number = chosen[0].number
+            plan = [(e, p, "wim", fc.WIMLIB) if e.number == wim_number else (e, p, m, t)
+                    for e, p, m, t in plan]
     manifest = im.new_manifest(os.path.basename(dest), disk, table, description)
     runner.plan(_data_steps(plan, table.sector_size))
     step = 0
@@ -167,7 +221,28 @@ def capture(runner, disk_path, name, image_dir=None, compression="zstd", level="
                 "compression": None,
                 "file": None,
             }
-            if mode in ("partclone", "dd"):
+            if mode == "wim":
+                rec["file"] = f"p{entry.number}.wim{ext}"
+                rec["compression"] = compression
+                runner.log(f"→ partition {entry.number} ({part.fstype}) : fichier par fichier (WIM)")
+                used = ntfs_used_bytes(runner, part.path)
+                config = os.path.join(tempfile.gettempdir(), "clonix-wim-exclude.txt")
+                if not runner.dry_run:
+                    with open(config, "w", encoding="utf-8") as f:
+                        f.write(fc.WIM_EXCLUDE)
+                cmds = [fc.wim_capture_cmd(part.path, config)]
+                if comp:
+                    cmds.append(comp)
+                runner.start_step(step)
+                step += 1
+                runner.last_wim_total = None
+                _write_stream(runner, tmp, manifest, rec["file"], cmds, rec["size"])
+                rec["min_size"] = wim_min_size(runner.last_wim_total or used, rec["size"])
+                manifest["table"]["min_bytes"] = (table.required_bytes() - rec["size"]
+                                                  + rec["min_size"] + 4 * pt.ALIGN_BYTES)
+                runner.log(f"  partition {entry.number} : au moins {dk.human_size(rec['min_size'])} "
+                           "nécessaires au déploiement")
+            elif mode in ("partclone", "dd"):
                 rec["file"] = f"p{entry.number}.{mode}{ext}"
                 rec["compression"] = compression
                 runner.log(f"→ partition {entry.number} ({part.fstype or 'brute'}) : {mode}")
@@ -233,7 +308,55 @@ def _write_stream(runner, folder, manifest, name, cmds, total):
 # ------------------------------------------------------------------- déploiement
 
 
-def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=None, adapt_windows=False):
+SMALLER_HINT = ("Pour la mettre sur un disque plus petit, recapturez le PC d'origine en cochant "
+                "« Image adaptable aux disques plus petits ».")
+EXPAND_MIN_GAIN = GIB  # en dessous, agrandir la partition ne vaut pas le temps passé
+
+
+def plan_layout(manifest, table_text, disk, expand=True):
+    """Adapte la table de l'image à la taille du disque cible.
+
+    Retourne ``(dump à écrire, {numéro: nouvelle taille en octets})``. Seule la
+    partition principale (la plus grande NTFS ou ext) change de taille :
+    - disque plus grand : elle est agrandie pour utiliser tout le disque ;
+    - disque plus petit : seulement si elle a été capturée fichier par fichier.
+    """
+    table = pt.parse_dump(table_text)
+    required = table.required_bytes()
+    recs = [r for r in manifest["partitions"]
+            if r.get("fstype") in fc.GROWABLE and r.get("mode") in ("partclone", "wim")]
+    rec = max(recs, key=lambda r: (r["mode"] == "wim", r["size"]), default=None)
+    entry = next((e for e in table.entries if rec and e.number == rec["number"]), None)
+    movable = entry is not None and (
+        table.label == "gpt" or all(e.start < entry.start for e in table.entries if e is not entry))
+    if required > disk.size:
+        if not movable or rec["mode"] != "wim":
+            raise ClonixError(
+                f"{disk.path} ({dk.human_size(disk.size)}) est trop petit pour l'image "
+                f"« {manifest['name']} » ({dk.human_size(required)} requis). {SMALLER_HINT}")
+        text, size = pt.relayout(table_text, disk.size, rec["number"], rec.get("min_size", rec["size"]))
+        return text, {rec["number"]: size}
+    if expand and movable and disk.size - required >= EXPAND_MIN_GAIN:
+        text, size = pt.relayout(table_text, disk.size, rec["number"], rec["size"])
+        return text, {rec["number"]: size}
+    return table_text, {}
+
+
+def grow_filesystem(runner, fstype, device):
+    """Agrandit le système de fichiers à la taille de sa partition (agrandie)."""
+    for argv, stdin, check in fc.grow_cmds(fstype, device):
+        if not check:
+            try:
+                runner.run(argv, input=stdin)
+            except CommandError as exc:
+                if exc.returncode > 2:  # e2fsck : 1 et 2 = erreurs corrigées
+                    raise
+            continue
+        runner.run(argv, input=stdin)
+
+
+def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=None, adapt_windows=False,
+           expand=True):
     """Restaure une image (``DirSource`` ou ``TarStreamSource``) sur ``disk_path``.
 
     ``confirm(manifest, disk)`` est appelé après lecture du manifeste et avant
@@ -249,19 +372,24 @@ def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=N
         reader = im.VerifyingReader(f, im.TABLE, files.get(im.TABLE))
         table_text = reader.read().decode()
         reader.read()  # déclenche la vérification
+    layout_text, resized = plan_layout(manifest, table_text, disk, expand=expand)
     table = pt.parse_dump(table_text)
-    if table.required_bytes() > disk.size:
-        raise ClonixError(
-            f"{disk.path} ({dk.human_size(disk.size)}) est trop petit pour l'image "
-            f"« {manifest['name']} » ({dk.human_size(table.required_bytes())} requis)"
-        )
     with source.open(im.BOOT) as f:
         reader = im.VerifyingReader(f, im.BOOT, files.get(im.BOOT))
         boot = reader.read()
         reader.read()  # déclenche la vérification
 
-    missing = sorted({r["tool"] for r in manifest["partitions"] if r["mode"] == "partclone"
-                      and not runner.which(r["tool"])})
+    needed = {r["tool"] for r in manifest["partitions"] if r["mode"] == "partclone"}
+    if any(r["mode"] == "wim" for r in manifest["partitions"]):
+        needed |= {fc.WIMLIB, "mkntfs"}
+    for number in resized:
+        rec = next(r for r in manifest["partitions"] if r["number"] == number)
+        grow_tools = {argv[0] for argv, _, _ in fc.grow_cmds(rec["fstype"], "")}
+        if rec["mode"] == "partclone" and not all(runner.which(t) for t in grow_tools):
+            runner.log("Outils d'agrandissement absents : la taille des partitions de l'image est gardée")
+            layout_text, resized = table_text, {}
+            break
+    missing = sorted(t for t in needed if not runner.which(t))
     if missing:
         raise ClonixError(f"Outils introuvables : {', '.join(missing)}")
 
@@ -272,7 +400,12 @@ def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=N
     dk.check_usb_link(runner, image_dir)
     dk.tune_readahead(runner, image_dir)
     started = time.monotonic()
-    pt.write_table(runner, disk, table_text, new_uuids=new_uuids)
+    for number, size in resized.items():
+        old = next(r["size"] for r in manifest["partitions"] if r["number"] == number)
+        verb = "agrandie" if size > old else "réduite"
+        runner.note(f"Partition {number} {verb} : {dk.human_size(old)} → {dk.human_size(size)} "
+                    f"pour s'adapter au disque de {dk.human_size(disk.size)}")
+    pt.write_table(runner, disk, layout_text, new_uuids=new_uuids)
     pt.restore_boot_area(runner, disk.path, table, boot)
 
     runner.plan([(_step_label(r["number"], r["fstype"], r["mode"]), r["size"])
@@ -291,8 +424,12 @@ def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=N
         decomp = fc.decompress_cmd(rec["compression"])
         if decomp:
             cmds.append(decomp)
-        flags = fc.partclone_flags(runner.supports, rec["tool"]) if mode == "partclone" else ()
-        cmds.append(fc.write_cmd(mode, rec["tool"], target, flags))
+        if mode == "wim":
+            runner.run(fc.mkntfs_cmd(target, rec.get("label")))
+            cmds.append(fc.wim_apply_cmd(target))
+        else:
+            flags = fc.partclone_flags(runner.supports, rec["tool"]) if mode == "partclone" else ()
+            cmds.append(fc.write_cmd(mode, rec["tool"], target, flags))
         runner.start_step(step)
         step += 1
         part_started = time.monotonic()
@@ -301,6 +438,13 @@ def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=N
                             total=rec["size"])
         _summary(runner, f"  partition {rec['number']}", part_started,
                  files.get(rec["file"], {}).get("size", 0), "lus", visible=False)
+        if mode == "partclone" and resized.get(rec["number"], 0) > rec["size"]:
+            runner.log(f"  agrandissement du système de fichiers de la partition {rec['number']}…")
+            try:
+                grow_filesystem(runner, rec["fstype"], target)
+            except ClonixError as exc:
+                runner.warn(f"La partition {rec['number']} n'a pas pu être agrandie ({exc}). Le PC "
+                            "démarrera normalement mais l'espace en plus restera inutilisé.")
 
     runner.run(["sync"], check=False)
     if adapt_windows and any(r.get("fstype") == "ntfs" for r in manifest["partitions"]):

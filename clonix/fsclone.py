@@ -163,3 +163,58 @@ def decompress_cmd(compression):
 
 def extension(compression):
     return COMPRESSORS[compression][0]
+
+
+# ------------------------------------------------- copie fichier par fichier (WIM)
+#
+# Une copie « blocs utilisés » ne peut revenir que dans une partition au moins
+# aussi grande que l'originale : Windows éparpille ses données sur toute la
+# partition. Pour déployer sur un disque plus petit, la partition Windows est
+# enregistrée fichier par fichier au format WIM (celui des images d'installation
+# de Microsoft) avec wimlib, qui lit et écrit le NTFS directement, sans montage,
+# en gardant droits, flux secondaires, liens et noms courts.
+
+WIMLIB = "wimlib-imagex"
+WIM_EXCLUDE = """[ExclusionList]
+\\$ntfs.log
+\\hiberfil.sys
+\\pagefile.sys
+\\swapfile.sys
+\\System Volume Information
+\\Windows\\CSC
+"""
+WIM_FSTYPES = {"ntfs"}
+
+
+def wim_capture_cmd(device, config):
+    """Capture du volume NTFS ``device`` vers la sortie standard (flux WIM « pipable »).
+
+    Pas de compression dans le WIM : c'est zstd, multicœur, qui compresse ensuite.
+    """
+    return [WIMLIB, "capture", device, "-", "Clonix", "--pipable", "--compress=none",
+            f"--config={config}"]
+
+
+def wim_apply_cmd(device):
+    """Écrit le flux WIM lu sur l'entrée standard dans le volume NTFS ``device``."""
+    return [WIMLIB, "apply", "-", "1", device]
+
+
+def mkntfs_cmd(device, label=""):
+    cmd = ["mkntfs", "--quick", "--force"]
+    if label:
+        cmd += ["--label", label]
+    return cmd + [device]
+
+
+def grow_cmds(fstype, device):
+    """Commandes qui agrandissent le système de fichiers à la taille de sa partition."""
+    if fstype == "ntfs":
+        return [(["ntfsresize", "--force", "--no-progress-bar", device], "y\n", True)]
+    if fstype in ("ext2", "ext3", "ext4"):
+        # e2fsck renvoie 1 quand il a corrigé quelque chose : ce n'est pas une erreur.
+        return [(["e2fsck", "-f", "-y", device], None, False), (["resize2fs", device], None, True)]
+    return []
+
+
+GROWABLE = {"ntfs", "ext2", "ext3", "ext4"}

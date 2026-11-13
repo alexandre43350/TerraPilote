@@ -259,7 +259,8 @@ function imageCard(i, opts = {}) {
         h("div", { class: "sub" }, [i.description, (i.created || "").slice(0, 10)].filter(Boolean).join(" · "))),
       h("div", { class: "size" }, size(i.size))),
     partBar(i.partitions, i.source.size || 1),
-    h("div", { class: "legend" }, `Disque source ${size(i.source.size)}${i.source.model ? " · " + i.source.model : ""} · ${i.partitions.length} partition(s)`));
+    h("div", { class: "legend" }, `Disque source ${size(i.source.size)}${i.source.model ? " · " + i.source.model : ""} · ${i.partitions.length} partition(s)`,
+      i.resizable ? h("span", { class: "badge ok" }, `adaptable · disque ≥ ${size(i.min_required)}`) : null));
 }
 
 /* ----------------------------------------------------------------- modale */
@@ -353,6 +354,8 @@ function wizardCapture(step = 0, sel = {}) {
   const hasNtfs = d.partitions.some((p) => p.fstype === "ntfs");
   const slimBox = h("input", { type: "checkbox" });
   slimBox.checked = sel.slim === true;
+  const resBox = h("input", { type: "checkbox" });
+  resBox.checked = sel.resizable === true;
   let level = sel.level || "auto";
   const seg = h("div", { class: "seg" }, [["auto", "Auto (recommandé)"], ["fast", "Ultra-rapide"], ["6", "Équilibré"], ["15", "Compact"]].map(([v, l]) =>
     h("button", { class: v === level ? "on" : "", onclick: (e) => { level = v; seg.querySelectorAll("button").forEach((b) => b.classList.remove("on")); e.currentTarget.classList.add("on"); } }, l)));
@@ -367,8 +370,11 @@ function wizardCapture(step = 0, sel = {}) {
     hasNtfs ? h("label", { class: "check" }, slimBox, h("span", {},
       h("strong", {}, "Alléger l'image (modifie le PC source). "),
       "Retire le fichier de veille prolongée et le fichier d'échange de Windows (souvent 5 à 20 Go), que Windows recrée tout seul. Capture plus rapide et image plus petite, comme AOMEI ou Acronis.")) : null,
-    wizFoot({ fn: () => wizardCapture(0, { ...sel, name: name.value, description: desc.value, level }) },
-      { label: "Lancer la capture", fn: () => launch("capture", { disk: d.path, name: name.value.trim(), description: desc.value, level, slim: hasNtfs && slimBox.checked }) }));
+    hasNtfs ? h("label", { class: "check" }, resBox, h("span", {},
+      h("strong", {}, "Image adaptable aux disques plus petits. "),
+      "La partition Windows est copiée fichier par fichier : l'image pourra être déployée sur tout disque assez grand pour ses données (ex. un 512 Go qui contient 80 Go → disque de 128 Go). Capture un peu plus lente. Sans cette option, l'image s'adapte quand même aux disques plus grands.")) : null,
+    wizFoot({ fn: () => wizardCapture(0, { ...sel, name: name.value, description: desc.value, level, slim: slimBox.checked, resizable: resBox.checked }) },
+      { label: "Lancer la capture", fn: () => launch("capture", { disk: d.path, name: name.value.trim(), description: desc.value, level, slim: hasNtfs && slimBox.checked, resizable: hasNtfs && resBox.checked }) }));
   name.focus();
 }
 
@@ -385,8 +391,12 @@ function wizardDeploy(step = 0, sel = {}) {
   }
   const img = S.images.find((i) => i.name === sel.image);
   if (step === 1) {
-    return openModal(wizHead("Déployer une image", `« ${img.name} » nécessite ${size(img.required)}. Choisissez le disque cible.`, 1, 3),
-      pickDisks(S.disks, sel.disk, (d) => wizardDeploy(1, { ...sel, disk: d.path }), (d) => targetProblem(d, img.required)),
+    const need = img.resizable ? img.min_required : img.required;
+    return openModal(wizHead("Déployer une image", img.resizable
+      ? `« ${img.name} » s'adapte à la taille du disque : il faut au moins ${size(need)}. Choisissez le disque cible.`
+      : `« ${img.name} » nécessite ${size(need)} (un disque plus grand convient aussi). Choisissez le disque cible.`, 1, 3),
+      pickDisks(S.disks, sel.disk, (d) => wizardDeploy(1, { ...sel, disk: d.path }), (d) => targetProblem(d, need)),
+      img.resizable ? null : h("p", { class: "note" }, "Pour un disque plus petit, recapturez le PC d'origine en cochant « Image adaptable aux disques plus petits »."),
       wizFoot({ fn: () => wizardDeploy(0, sel) }, { label: "Continuer", disabled: !sel.disk, fn: () => wizardDeploy(2, sel) }));
   }
   const d = S.disks.find((x) => x.path === sel.disk);
@@ -394,11 +404,25 @@ function wizardDeploy(step = 0, sel = {}) {
   const uu = h("input", { type: "checkbox" });
   const adapt = h("input", { type: "checkbox" });
   adapt.checked = true;
-  const go = h("button", { class: "btn danger", disabled: true, onclick: () => launch("deploy", { image: img.name, disk: d.path, confirm: typed, new_uuids: uu.checked, adapt: adapt.checked }) }, "Effacer et déployer");
+  const expand = h("input", { type: "checkbox" });
+  expand.checked = true;
+  const GIB = 1024 ** 3;
+  const go = h("button", { class: "btn danger", disabled: true, onclick: () => launch("deploy", { image: img.name, disk: d.path, confirm: typed, new_uuids: uu.checked, adapt: adapt.checked, expand: expand.checked }) }, "Effacer et déployer");
+  const main = img.partitions.filter((p) => p.fstype === "ntfs" || /^ext[234]$/.test(p.fstype || ""))
+    .sort((a, b) => (b.mode === "wim") - (a.mode === "wim") || b.size - a.size)[0];
+  let sizing = null;
+  if (main && d.size < img.required) {
+    sizing = h("p", { class: "note-box" }, `Disque plus petit que l'original : la partition ${main.number} (${size(main.size)}) sera réduite à la taille du disque, puis Windows y sera recopié fichier par fichier.`);
+  } else if (main && d.size - img.required >= GIB) {
+    sizing = h("label", { class: "check" }, expand, h("span", {},
+      h("strong", {}, "Utiliser tout le disque (recommandé). "),
+      `La partition ${main.number} passe d'environ ${size(main.size)} à ${size(main.size + d.size - img.required)}. Sinon, ${size(d.size - img.required)} resteraient inutilisés.`));
+  }
   openModal(wizHead("Déployer une image", "Dernière vérification avant l'écriture.", 2, 3),
     h("div", { class: "arrow" }, imageCard(img), flow(), diskCard(d)),
     h("div", { style: "height:18px" }),
     dangerConfirm(d, (valid, v) => { typed = v; go.disabled = !valid; }),
+    sizing,
     h("label", { class: "check" }, adapt, h("span", {}, "Adapter Windows à ce PC (recommandé). Évite l'écran bleu INACCESSIBLE_BOOT_DEVICE quand l'image vient d'un autre PC : Clonix active les pilotes de disque standard de Windows. Seule la copie déployée est modifiée.")),
     h("label", { class: "check" }, uu, h("span", {}, "Générer de nouveaux identifiants de disque et de partitions (déconseillé pour Windows).")),
     h("div", { class: "wiz-foot" }, h("button", { class: "btn", onclick: () => wizardDeploy(1, sel) }, "Retour"), go));
