@@ -354,7 +354,7 @@ function wizardCapture(step = 0, sel = {}) {
   const slimBox = h("input", { type: "checkbox" });
   slimBox.checked = sel.slim === true;
   let level = sel.level || "auto";
-  const seg = h("div", { class: "seg" }, [["auto", "Auto (recommandé)"], ["1", "Ultra-rapide"], ["6", "Équilibré"], ["15", "Compact"]].map(([v, l]) =>
+  const seg = h("div", { class: "seg" }, [["auto", "Auto (recommandé)"], ["fast", "Ultra-rapide"], ["6", "Équilibré"], ["15", "Compact"]].map(([v, l]) =>
     h("button", { class: v === level ? "on" : "", onclick: (e) => { level = v; seg.querySelectorAll("button").forEach((b) => b.classList.remove("on")); e.currentTarget.classList.add("on"); } }, l)));
   openModal(wizHead("Capturer un disque", "Nommez l'image et lancez la capture.", 1, 2),
     diskCard(d),

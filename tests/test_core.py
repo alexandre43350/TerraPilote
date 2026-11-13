@@ -712,3 +712,19 @@ class AutoLevelUsbTest(unittest.TestCase):
         self.assertEqual(fc.choose_level("auto", "exfat", on_usb=True), "adapt")
         self.assertEqual(fc.choose_level("auto", "ext4", on_usb=False), 1)
         self.assertEqual(fc.choose_level("6", "exfat", on_usb=True), "6")
+
+
+class FastCompressionTest(unittest.TestCase):
+    def test_fast_level(self):
+        self.assertEqual(fc.compress_cmd("zstd", "fast"), ["zstd", "-q", "-T0", f"--fast={fc.FAST_LEVEL}", "-c"])
+        self.assertEqual(fc.compress_cmd("gzip", "fast")[1], "-1")
+
+    def test_adapt_uses_fast_levels_when_supported(self):
+        with mock.patch.object(fc, "_adapt_min_cache", [-3]):
+            self.assertIn("--adapt=min=-3,max=9", fc.compress_cmd("zstd", "adapt"))
+        with mock.patch.object(fc, "_adapt_min_cache", [1]):
+            self.assertIn("--adapt=min=1,max=9", fc.compress_cmd("zstd", "adapt"))
+
+    def test_adapt_min_falls_back_without_zstd(self):
+        with mock.patch.object(fc, "_adapt_min_cache", []), mock.patch("shutil.which", return_value=None):
+            self.assertEqual(fc.adapt_min_level(), 1)

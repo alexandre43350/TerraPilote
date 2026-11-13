@@ -224,7 +224,7 @@ def build_parser():
     sp.add_argument("name", help="nom de l'image")
     sp.add_argument("--compression", choices=["zstd", "gzip", "none"], default="zstd")
     sp.add_argument("--level", default="auto",
-                    help="niveau zstd 1-19, « adapt », ou « auto » (défaut : 1 en local, adaptatif sur le réseau)")
+                    help="niveau zstd 1-19, « fast » (ultra-rapide), « adapt », ou « auto » (défaut : 1 sur disque interne, adaptatif sur USB et réseau)")
     sp.add_argument("--description", default="")
     sp.add_argument("--slim", action="store_true",
                     help="retirer hiberfil.sys et pagefile.sys de Windows avant la capture (recréés par Windows)")

@@ -8,6 +8,7 @@
 """
 
 import shutil
+import subprocess
 
 PARTCLONE_TOOLS = {
     "ext2": "partclone.extfs",
@@ -27,16 +28,49 @@ PARTCLONE_BUFFER = 16 * 1024 * 1024  # défaut partclone : 1 Mio
 NETWORK_FS = {"cifs", "smb3", "nfs", "nfs4", "fuse.sshfs"}
 
 
+FAST_LEVEL = 3  # zstd --fast=3 : bien plus rapide que -1, image un peu plus grosse
+_adapt_min_cache = []
+
+
+def adapt_min_level():
+    """Niveau le plus bas autorisé en mode adaptatif.
+
+    Les niveaux « rapides » (négatifs) laissent zstd alléger la compression quand
+    c'est le processeur qui limite (PC peu puissant). On vérifie une fois que le
+    zstd installé les accepte ; sinon on reste au niveau 1.
+    """
+    if not _adapt_min_cache:
+        level = 1
+        if shutil.which("zstd"):
+            try:
+                ok = subprocess.run(["zstd", "-q", f"--adapt=min=-{FAST_LEVEL},max=9", "-c"],
+                                    input=b"clonix", stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL, timeout=10).returncode == 0
+                level = -FAST_LEVEL if ok else 1
+            except (OSError, subprocess.SubprocessError):
+                level = 1
+        _adapt_min_cache.append(level)
+    return _adapt_min_cache[0]
+
+
 def _zstd(level):
-    # « adapt » : zstd ajuste lui-même le niveau au débit de sortie (réseau lent
-    # → compression plus forte, donc moins d'octets à transférer).
-    lvl = ["--adapt=min=1,max=9"] if level == "adapt" else [f"-{level}"]
+    # « adapt » : zstd ajuste lui-même le niveau. Sortie lente (réseau, USB) →
+    # compression plus forte, donc moins d'octets à écrire ; processeur lent →
+    # niveaux « rapides », pour ne pas freiner la copie.
+    # « fast » : niveau rapide fixe (option « Ultra-rapide »).
+    if level == "adapt":
+        lvl = [f"--adapt=min={adapt_min_level()},max=9"]
+    elif level == "fast":
+        lvl = [f"--fast={FAST_LEVEL}"]
+    else:
+        lvl = [f"-{level}"]
     return ["zstd", "-q", "-T0", *lvl, "-c"]
 
 
 def _gzip(level):
     tool = "pigz" if shutil.which("pigz") else "gzip"  # pigz : gzip multicœur
-    return [tool, f"-{min(int(level) if level != 'adapt' else 6, 9)}", "-c"]
+    value = {"adapt": 6, "fast": 1}.get(level, level)
+    return [tool, f"-{min(int(value), 9)}", "-c"]
 
 
 COMPRESSORS = {
