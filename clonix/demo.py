@@ -97,6 +97,7 @@ class DemoRunner(Runner):
             while feed.read(1 << 20):
                 pass
         rate = 900e6 + 300e6 * (len(cmds) % 2)
+        self._flow = _DemoFlow("out" if sink is not None else "in")
         steps = 40
         for i in range(1, steps + 1):
             if self.cancelled:
@@ -104,6 +105,7 @@ class DemoRunner(Runner):
             time.sleep(self.speed / steps)
             f = i / steps
             self.emit(f, rate=rate * (0.9 + 0.2 * ((i * 7) % 5) / 5), eta=self.speed * (1 - f) * 30)
+        self._end_flow()
         self.check_cancel()
         if sink is not None:
             data = b"DEMO" * 1024
@@ -238,6 +240,16 @@ class DemoApp(App):
             disk = self._disk(body["disk"], writable=True)
             self._confirm(disk, body)
         return self.start(name, title, work)
+
+
+class _DemoFlow:
+    def __init__(self, direction):
+        self.direction = direction
+
+    def snapshot(self):
+        return {"store_rate": 410e6, "elapsed": 5,
+                "limit": "le processeur (compression)" if self.direction == "out"
+                else "la lecture du support des images"}
 
 
 class _Quiet:

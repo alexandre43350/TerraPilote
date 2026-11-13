@@ -688,6 +688,14 @@ function renderJob() {
   $("#job-step").textContent = states[job.state] || (p.label ? `${p.label} · étape ${p.step} sur ${p.steps}` : "Préparation…");
   $("#job-rate").textContent = job.state === "running" ? rate(p.rate) : "—";
   $("#job-eta").textContent = job.state === "running" ? duration(p.eta) : "—";
+  const showLimit = job.state === "running" && p.limit;
+  $("#job-limit").hidden = !showLimit;
+  if (showLimit) {
+    const verb = ["capture"].includes(job.kind) ? "Écriture sur" : "Lecture sur";
+    $("#job-limit").replaceChildren(
+      h("span", {}, `${verb} le support : `, h("strong", {}, rate(p.store_rate))),
+      h("span", {}, "Ce qui freine : ", h("strong", {}, p.limit)));
+  }
   $("#job-elapsed").textContent = duration((job.finished || Date.now() / 1000) - job.started);
   $("#job-error").hidden = !job.error;
   $("#job-error").textContent = job.error || "";

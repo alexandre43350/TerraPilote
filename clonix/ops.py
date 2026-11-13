@@ -280,6 +280,11 @@ def _summary(runner, what, started, nbytes, verb, visible=True):
     rate = nbytes / elapsed / 1e6
     text = (f"{what} : {minutes} min {seconds:02d} s, {dk.human_size(nbytes)} {verb} "
             f"(moyenne {rate:.0f} Mo/s)")
+    flow = getattr(runner, "slowest", None)
+    if visible and flow:
+        side = "Écriture sur" if verb == "écrits" else "Lecture sur"
+        text += (f". Vitesse limitée par {flow['limit']}. {side} le support des images : "
+                 f"{flow['store_rate'] / 1e6:.0f} Mo/s.")
     (runner.note if visible else runner.log)(text)
 
 

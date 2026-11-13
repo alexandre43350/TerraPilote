@@ -140,6 +140,95 @@ def human_time(sec):
     return f"{sec // 3600}h{sec % 3600 // 60:02d}" if sec >= 3600 else f"{sec // 60}:{sec % 60:02d}"
 
 
+COMPRESSORS = {"zstd", "gzip", "pigz", "xz"}
+try:
+    CLK_TCK = os.sysconf("SC_CLK_TCK")
+except (AttributeError, ValueError, OSError):
+    CLK_TCK = 100
+
+# Ce qui limite la vitesse, selon le sens de la copie.
+LIMITS = {
+    ("out", "store"): "l'écriture sur le support des images",
+    ("out", "cpu"): "le processeur (compression)",
+    ("out", "source"): "la lecture du disque du PC",
+    ("in", "store"): "la lecture du support des images",
+    ("in", "cpu"): "le processeur (décompression)",
+    ("in", "source"): "l'écriture sur le disque du PC",
+}
+
+
+def proc_cpu_seconds(pid, proc="/proc"):
+    """Temps processeur consommé par un processus (tous ses fils d'exécution)."""
+    try:
+        with open(f"{proc}/{pid}/stat") as f:
+            fields = f.read().rsplit(")", 1)[1].split()
+        return (int(fields[11]) + int(fields[12])) / CLK_TCK
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+class Flow:
+    """Mesure, pendant une copie, ce qui limite la vitesse.
+
+    - ``out`` (capture) : Clonix écrit la sortie de la dernière commande dans
+      l'image. S'il passe l'essentiel du temps bloqué dans cette écriture, c'est
+      le support des images qui freine.
+    - ``in`` (déploiement) : Clonix lit l'image et la donne à la 1re commande.
+      S'il passe l'essentiel du temps bloqué dans cette lecture, c'est le
+      support qui freine.
+    Sinon, le temps processeur des commandes dit si la (dé)compression sature
+    les cœurs ; à défaut c'est le disque du PC.
+    """
+
+    BUSY = 0.7
+
+    def __init__(self, direction, procs=(), cpus=None, clock=time.monotonic, cpu_of=proc_cpu_seconds):
+        self.direction = direction
+        self.procs = list(procs)  # [(argv, pid)]
+        self.cpus = cpus or os.cpu_count() or 1
+        self.clock = clock
+        self.cpu_of = cpu_of
+        self.started = clock()
+        self.bytes = 0
+        self.busy = 0.0
+        self._cpu0 = {pid: cpu_of(pid) or 0.0 for _, pid in self.procs}
+
+    def timed(self, fn):
+        def wrapper(*args):
+            t = self.clock()
+            try:
+                out = fn(*args)
+            finally:
+                self.busy += self.clock() - t
+            n = len(args[0]) if self.direction == "out" and args else len(out) if out else 0
+            self.bytes += n
+            return out
+        return wrapper
+
+    def snapshot(self):
+        elapsed = self.clock() - self.started
+        if elapsed < 3:
+            return None
+        busy = self.busy / elapsed
+        comp = total = 0.0
+        for argv, pid in self.procs:
+            now = self.cpu_of(pid)
+            if now is None:
+                continue
+            used = (now - self._cpu0.get(pid, 0.0)) / elapsed
+            total += used
+            if os.path.basename(str(argv[0])) in COMPRESSORS:
+                comp += used
+        if busy >= self.BUSY:
+            kind = "store"
+        elif comp >= 0.8 * self.cpus or total >= 0.9 * self.cpus:
+            kind = "cpu"
+        else:
+            kind = "source"
+        return {"store_rate": self.bytes / elapsed, "limit": LIMITS[(self.direction, kind)],
+                "busy": round(busy, 2), "cpu": round(total, 2), "cpus": self.cpus, "elapsed": elapsed}
+
+
 class Runner:
     def __init__(self, dry_run=False, verbose=False, out=None, reporter=None):
         self.dry_run = dry_run
@@ -153,6 +242,9 @@ class Runner:
         self._step_started = 0.0
         self._help_cache = {}
         self.last_wim_total = None  # volume de fichiers copié par la dernière commande wimlib
+        self._flow = None
+        self._flow_cache = (0.0, None)
+        self.slowest = None  # mesure de la copie la plus longue de l'opération
 
     # ----------------------------------------------------------- rapports
     def log(self, message):
@@ -178,6 +270,7 @@ class Runner:
         """Déclare les étapes longues : liste de (libellé, poids en octets)."""
         self._steps = [(label, max(int(w), 1)) for label, w in steps]
         self._step = -1
+        self.slowest = None
 
     def start_step(self, index):
         self._step = index
@@ -195,7 +288,10 @@ class Runner:
             rate = done_bytes / elapsed
         if eta is None and 0.001 < fraction < 1 and elapsed > 1:
             eta = elapsed * (1 - fraction) / fraction
+        flow = self._flow_snapshot()
         self.reporter.progress({
+            "store_rate": flow and flow["store_rate"],
+            "limit": flow and flow["limit"],
             "label": label,
             "step": self._step + 1,
             "steps": len(self._steps),
@@ -205,6 +301,27 @@ class Runner:
             "rate": rate,
             "eta": eta,
         })
+
+    def _flow_snapshot(self):
+        """Mesure en cours (recalculée au plus une fois par seconde)."""
+        flow = self._flow
+        if flow is None:
+            return None
+        t, snap = self._flow_cache
+        now = time.monotonic()
+        if now - t >= 1:
+            snap = flow.snapshot()
+            self._flow_cache = (now, snap)
+        return snap
+
+    def _end_flow(self):
+        flow, self._flow = self._flow, None
+        # Les commandes sont terminées : leur temps processeur n'est plus lisible,
+        # on garde la dernière mesure prise pendant la copie.
+        snap = self._flow_cache[1] or (flow.snapshot() if flow else None)
+        self._flow_cache = (0.0, None)
+        if snap and (self.slowest is None or snap["elapsed"] > self.slowest["elapsed"]):
+            self.slowest = snap
 
     def byte_progress(self):
         """Rappel de progression (octets traités, total) pour une étape en cours."""
@@ -339,9 +456,16 @@ class Runner:
                 sink.write(buf)
                 written[0] += len(buf)
 
+            pids = [(a, p.pid) for a, p in zip(cmds, procs)]
+            if sink is not None:
+                self._flow = Flow("out", pids)
+                count = self._flow.timed(count)
+            elif feed is not None:
+                self._flow = Flow("in", pids)
             if feed is not None:
                 stdin = procs[0].stdin
-                feeder = _Pump(feed.read, stdin.write, on_end=stdin.close)
+                read = self._flow.timed(feed.read) if self._flow.direction == "in" else feed.read
+                feeder = _Pump(read, stdin.write, on_end=stdin.close)
                 feeder.start()
             if sink is not None:
                 pump = _Pump(procs[-1].stdout.read, count)
@@ -364,6 +488,7 @@ class Runner:
                 self._untrack(p)
             for w in watchers:
                 w.join(timeout=5)
+            self._end_flow()
 
         self.check_cancel()
         for i, (argv, p) in enumerate(zip(cmds, procs)):
