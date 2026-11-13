@@ -15,7 +15,7 @@ class Clock:
         return self.t
 
 
-def flow(direction, cpu, cpus=4, procs=(("partclone.ntfs", 1), ("zstd", 2))):
+def flow(direction, cpu, cpus=4, procs=((["partclone.ntfs"], 1), (["zstd"], 2))):
     clock = Clock()
     used = {pid: 0.0 for _, pid in procs}
     f = Flow(direction, procs, cpus=cpus, clock=clock, cpu_of=lambda pid: used[pid])
@@ -61,6 +61,15 @@ class FlowTest(unittest.TestCase):
         snap = f.snapshot()
         self.assertEqual(snap["limit"], "la lecture du support des images")
         self.assertAlmostEqual(snap["store_rate"], 500)
+
+    def test_single_core_tool(self):
+        f, clock, used = flow("out", cpu=0)
+        clock.t = 10
+        used[1] = 9.6  # partclone : un cœur à fond
+        used[2] = 6.0
+        snap = f.snapshot()
+        self.assertEqual(snap["limit"], "le processeur (partclone.ntfs, qui n'utilise qu'un cœur)")
+        self.assertIn("partclone.ntfs 0,96 cœur", f.describe(snap))
 
     def test_too_early(self):
         f, clock, _ = flow("out", cpu=0)

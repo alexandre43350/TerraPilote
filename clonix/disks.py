@@ -249,6 +249,20 @@ def tune_readahead(runner, directory, kb=READAHEAD_KB):
     return devices
 
 
+def tune_disk_readahead(runner, disk, kb=READAHEAD_KB):
+    """Lecture anticipée agrandie sur le disque du PC (source d'une capture).
+
+    partclone ne lit que les zones utilisées, une à la fois : avec les 128 Ko
+    d'avance de Linux, un SSD NVMe lu ainsi reste loin de sa vitesse.
+    """
+    if runner.dry_run:
+        return []
+    devices = [disk.path] + [p.path for p in disk.partitions]
+    for dev in devices:
+        runner.run(["blockdev", "--setra", str(kb * 2), dev], check=False)
+    return devices
+
+
 def check_readable_source(disk):
     if disk.mountpoints:
         raise ClonixError(

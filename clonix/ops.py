@@ -195,6 +195,7 @@ def capture(runner, disk_path, name, image_dir=None, compression="zstd", level="
 
     runner.log(f"Capture de {disk.describe()} vers {dest}")
     dk.check_usb_link(runner, image_dir)
+    dk.tune_disk_readahead(runner, disk)
     started = time.monotonic()
     tmp = dest + ".partial"
     if not runner.dry_run:
@@ -492,6 +493,7 @@ def clone(runner, src_path, dst_path, new_uuids=False, confirm=None):
         confirm(src, dst)
 
     runner.log(f"Clonage {src.describe()} → {dst.describe()}")
+    dk.tune_disk_readahead(runner, src)
     pt.write_table(runner, dst, table_text, new_uuids=new_uuids)
     pt.restore_boot_area(runner, dst.path, table, boot)
     runner.plan(_data_steps(plan, table.sector_size))

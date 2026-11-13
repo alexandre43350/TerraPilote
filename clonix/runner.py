@@ -151,6 +151,8 @@ LIMITS = {
     ("out", "store"): "l'écriture sur le support des images",
     ("out", "cpu"): "le processeur (compression)",
     ("out", "source"): "la lecture du disque du PC",
+    ("out", "tool"): "le processeur ({tool}, qui n'utilise qu'un cœur)",
+    ("in", "tool"): "le processeur ({tool}, qui n'utilise qu'un cœur)",
     ("in", "store"): "la lecture du support des images",
     ("in", "cpu"): "le processeur (décompression)",
     ("in", "source"): "l'écriture sur le disque du PC",
@@ -211,22 +213,37 @@ class Flow:
             return None
         busy = self.busy / elapsed
         comp = total = 0.0
+        per_tool = {}
         for argv, pid in self.procs:
             now = self.cpu_of(pid)
             if now is None:
                 continue
             used = (now - self._cpu0.get(pid, 0.0)) / elapsed
             total += used
-            if os.path.basename(str(argv[0])) in COMPRESSORS:
+            name = os.path.basename(str(argv[0]))
+            per_tool[name] = per_tool.get(name, 0.0) + used
+            if name in COMPRESSORS:
                 comp += used
+        single = max(((u, n) for n, u in per_tool.items() if n not in COMPRESSORS), default=(0.0, ""))
         if busy >= self.BUSY:
             kind = "store"
         elif comp >= 0.8 * self.cpus or total >= 0.9 * self.cpus:
             kind = "cpu"
+        elif single[0] >= 0.85:
+            kind = "tool"  # un outil mono-cœur (partclone, dd) tourne à plein régime
         else:
             kind = "source"
-        return {"store_rate": self.bytes / elapsed, "limit": LIMITS[(self.direction, kind)],
-                "busy": round(busy, 2), "cpu": round(total, 2), "cpus": self.cpus, "elapsed": elapsed}
+        return {"store_rate": self.bytes / elapsed,
+                "limit": LIMITS[(self.direction, kind)].format(tool=single[1]),
+                "busy": round(busy, 2), "cpu": round(total, 2), "cpus": self.cpus, "elapsed": elapsed,
+                "tools": {n: round(u, 2) for n, u in per_tool.items()}}
+
+    def describe(self, snap):
+        """Détail pour le journal : occupation du support et des processeurs."""
+        tools = ", ".join(f"{n} " + f"{u:.2f}".replace(".", ",") + " cœur" for n, u in snap["tools"].items())
+        side = "écriture" if self.direction == "out" else "lecture"
+        return (f"  mesure : {side} du support {snap['store_rate'] / 1e6:.0f} Mo/s, occupée "
+                f"{snap['busy'] * 100:.0f} % du temps ; processeur ({snap['cpus']} cœurs) : {tools or '?'}")
 
 
 class Runner:
@@ -320,6 +337,8 @@ class Runner:
         # on garde la dernière mesure prise pendant la copie.
         snap = self._flow_cache[1] or (flow.snapshot() if flow else None)
         self._flow_cache = (0.0, None)
+        if snap and flow:
+            self.log(flow.describe(snap))
         if snap and (self.slowest is None or snap["elapsed"] > self.slowest["elapsed"]):
             self.slowest = snap
 
