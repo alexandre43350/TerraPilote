@@ -251,6 +251,9 @@ class _DemoFlow:
                 "limit": "le processeur (compression)" if self.direction == "out"
                 else "la lecture du support des images"}
 
+    def describe(self, snap):
+        return f"  mesure (simulée) : {snap['limit']}"
+
 
 class _Quiet:
     def log(self, m):

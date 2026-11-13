@@ -40,6 +40,7 @@ const ICONS = {
   net: P('<rect x="9" y="3" width="6" height="5" rx="1"/><rect x="3" y="16" width="6" height="5" rx="1"/><rect x="15" y="16" width="6" height="5" rx="1"/><path d="M12 8v4M6 16v-2h12v2"/>'),
   cloud: P('<path d="M7 18a4.5 4.5 0 0 1-.5-9A6 6 0 0 1 18 9.5a4 4 0 0 1-1 8.5z"/>'),
   check: P('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
+  trash: P('<path d="M4 7h16M10 11v6M14 11v6"/><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>'),
   stack: P('<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>'),
   key: P('<circle cx="8" cy="8" r="4.5"/><path d="M11.2 11.2L20 20M17 17l2-2M14 14l2.5-2.5"/>'),
   gauge: P('<path d="M4 15a8 8 0 1 1 16 0"/><path d="M12 15l4-5"/><circle cx="12" cy="15" r="1.2"/>'),
@@ -183,7 +184,7 @@ function render() {
 
   const side = $("#side-storage");
   const used = st.mounted && st.free !== null ? Math.min(1, imgTotal / (imgTotal + st.free)) : 0;
-  side.replaceChildren(
+  side.replaceChildren(...[
     h("div", { class: "label" }, "Dépôt d'images"),
     h("div", { class: "title" }, h("span", { class: "dot" + (st.mounted ? " ok" : "") }), st.mounted ? (st.source || st.dir) : "Non monté"),
     h("div", { class: "sub" }, st.mounted ? `${size(st.free)} libres · ${st.fstype || "local"}` : "Choisissez où lire et écrire les images"),
@@ -191,7 +192,8 @@ function render() {
       ? h("div", { class: "usb-warn" }, "⚠ Relié en USB 2 (lent). Éteignez, rebranchez le câble à fond sur un port USB 3, redémarrez.")
       : h("div", { class: "sub" }, `Relié en USB ${st.usb_speed >= 10000 ? "3.2" : "3"} (${st.usb_speed / 1000} Gbit/s) ✓`)) : null,
     st.mounted ? h("div", { class: "meter" }, h("div", { style: `width:${Math.max(used * 100, 2)}%` })) : null,
-    h("button", { class: "btn" + (st.mounted ? "" : " primary"), onclick: () => storageDialog() }, st.mounted ? "Changer de dépôt" : "Configurer le dépôt"));
+    h("button", { class: "btn" + (st.mounted ? "" : " primary"), onclick: () => storageDialog() }, st.mounted ? "Changer de dépôt" : "Configurer le dépôt"),
+  ].filter(Boolean));
   $("#side-net").replaceChildren(icon("net"), S.interface ? `Interface ${S.interface}` : "Aucun réseau");
 
   $("#disk-count").textContent = `${S.disks.length} disque(s)`;
@@ -207,7 +209,7 @@ function imageListOrEmpty() {
       h("button", { class: "btn primary", onclick: () => storageDialog() }, "Configurer le dépôt"))];
   }
   if (!S.images.length) return [h("div", { class: "empty" }, "Le dépôt ne contient encore aucune image.")];
-  return S.images.map((i) => imageCard(i));
+  return S.images.map((i) => imageCard(i, { onDelete: () => confirmDeleteImage(i) }));
 }
 
 function partBar(parts, total) {
@@ -257,10 +259,29 @@ function imageCard(i, opts = {}) {
       icon("image", "tile-ico"),
       h("div", { class: "meta" }, h("strong", {}, i.name),
         h("div", { class: "sub" }, [i.description, (i.created || "").slice(0, 10)].filter(Boolean).join(" · "))),
-      h("div", { class: "size" }, size(i.size))),
+      h("div", { class: "size" }, size(i.size)),
+      opts.onDelete ? h("button", { class: "icon-btn danger-icon", title: "Supprimer l'image", "aria-label": `Supprimer l'image ${i.name}`,
+        onclick: (e) => { e.stopPropagation(); opts.onDelete(); } }, icon("trash")) : null),
     partBar(i.partitions, i.source.size || 1),
     h("div", { class: "legend" }, `Disque source ${size(i.source.size)}${i.source.model ? " · " + i.source.model : ""} · ${i.partitions.length} partition(s)`,
       i.resizable ? h("span", { class: "badge ok" }, `adaptable · disque ≥ ${size(i.min_required)}`) : null));
+}
+
+function confirmDeleteImage(img) {
+  if (S.job && S.job.state === "running") return toast("Une opération est en cours : attendez qu'elle se termine pour supprimer une image", true);
+  const go = h("button", { class: "btn danger", onclick: async () => {
+    go.disabled = true;
+    try {
+      await api("delete-image", { image: img.name });
+      closeModal();
+      toast(`Image « ${img.name} » supprimée`);
+      refresh();
+    } catch (e) { go.disabled = false; toast(e.message, true); }
+  } }, "Supprimer définitivement");
+  openModal(wizHead("Supprimer une image", "Cette action est définitive : l'image ne pourra pas être récupérée."),
+    imageCard(img),
+    h("p", { class: "note" }, `${size(img.size)} seront libérés sur le support des images. Les PC déjà déployés avec cette image ne sont pas touchés.`),
+    h("div", { class: "wiz-foot" }, h("button", { class: "btn", onclick: closeModal }, "Annuler"), go));
 }
 
 /* ----------------------------------------------------------------- modale */

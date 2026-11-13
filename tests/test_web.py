@@ -110,6 +110,41 @@ class WebTest(unittest.TestCase):
         status, err = self.call("/api/capture", {"disk": "/dev/sda", "name": "../x"})
         self.assertEqual(status, 400)
 
+    def test_delete_image(self):
+        import os
+        self.call("/api/capture", {"disk": "/dev/sda", "name": "poste", "description": "d"})
+        self.wait_job()
+        os.makedirs(os.path.join(self.tmp.name, "pas-une-image"))
+        for name, code in (("../x", 400), ("absente", 404), ("pas-une-image", 404)):
+            status, _ = self.call("/api/delete-image", {"image": name})
+            self.assertEqual(status, code, name)
+        self.assertTrue(os.path.isdir(os.path.join(self.tmp.name, "pas-une-image")))
+
+        release = threading.Event()
+        self.app.start("verify", "long", lambda r: release.wait(5))
+        status, err = self.call("/api/delete-image", {"image": "poste"})
+        self.assertEqual(status, 409)
+        self.assertIn("en cours", err["error"])
+        release.set()
+        self.wait_job()
+
+        status, _ = self.call("/api/delete-image", {"image": "poste"})
+        self.assertEqual(status, 200)
+        _, s = self.call("/api/state")
+        self.assertEqual(s["images"], [])
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "poste")))
+
+
+
+class DemoTest(unittest.TestCase):
+    def test_demo_starts_with_sample_images(self):
+        from clonix.demo import DemoApp
+        app = DemoApp()
+        self.addCleanup(app.tmp.cleanup)
+        images = app.state()["images"]
+        self.assertEqual(len(images), 2)
+        self.assertTrue(any(i["resizable"] for i in images))
+
 
 if __name__ == "__main__":
     unittest.main()

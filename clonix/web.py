@@ -8,6 +8,7 @@ réseau, protégée par un code d'accès affiché à l'écran.
 import collections
 import json
 import os
+import shutil
 import secrets
 import subprocess
 import threading
@@ -195,8 +196,25 @@ class App:
         if body.get("confirm") != disk.name:
             raise ApiError(f"Confirmation incorrecte : tapez « {disk.name} »")
 
+    def delete_image(self, body):
+        """Supprime une image du dépôt (refusé pendant une opération)."""
+        image = _clean_name(body.get("image", ""))
+        root = os.path.realpath(self.image_dir)
+        path = os.path.realpath(os.path.join(root, image))
+        if os.path.dirname(path) != root or not os.path.isfile(os.path.join(path, im.MANIFEST)):
+            raise ApiError(f"Image introuvable : {image}", HTTPStatus.NOT_FOUND)
+        with self.lock:
+            if self.job and self.job.state == "running":
+                raise ApiError("Une opération est en cours : attendez qu'elle se termine pour supprimer "
+                               "une image", HTTPStatus.CONFLICT)
+            if not self.dry_run:
+                shutil.rmtree(path)
+        return {"ok": True}
+
     def action(self, name, body):
         d = self.image_dir
+        if name == "delete-image":
+            return self.delete_image(body)
         if name == "capture":
             disk = self._disk(body["disk"], writable=False)
             dk.check_readable_source(disk)

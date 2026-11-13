@@ -215,6 +215,8 @@ main { padding: 34px 40px 48px; max-width: 1480px; width: 100%; }
 .btn:disabled { opacity: .4; cursor: not-allowed; filter: grayscale(.4); box-shadow: none; }
 .icon-btn { width: 38px; height: 38px; padding: 9px; border-radius: 12px; border: 1px solid var(--line-2); background: rgba(255,255,255,.03); cursor: pointer; display: grid; place-items: center; }
 .icon-btn:hover { color: var(--accent); border-color: rgba(61,220,151,.4); }
+.icon-btn.danger-icon { width: 34px; height: 34px; padding: 8px; color: var(--muted); flex: none; }
+.icon-btn.danger-icon:hover { color: var(--danger); border-color: rgba(255,107,107,.45); background: rgba(255,107,107,.08); }
 
 /* ---------------------------------------------------------------- modale */
 .modal { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 24px; background: rgba(2, 5, 4, .62); backdrop-filter: blur(10px); animation: fade .2s ease-out; }
