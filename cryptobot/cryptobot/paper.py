@@ -1,9 +1,9 @@
 """Paper trading : le bot tourne en temps réel sur les vrais prix Binance, mais avec
 un portefeuille FICTIF. Aucun ordre réel n'est jamais envoyé (aucune clé API utilisée).
 
-Même logique que le backtest : décision à la clôture de chaque bougie, frais et slippage
-simulés, stop suiveur ATR surveillé à chaque relevé de prix.
-L'état est sauvegardé dans state/<nom>.json : on peut arrêter et relancer le bot.
+Même logique que le backtest : décision à la clôture de chaque bougie, trésorerie commune
+BTC/ETH, ventes avant achats, frais et slippage simulés, stop suiveur ATR surveillé à chaque
+relevé de prix. L'état est sauvegardé dans state/<nom>.json : on peut arrêter et relancer le bot.
 """
 
 from __future__ import annotations
@@ -20,8 +20,8 @@ import pandas as pd
 
 from . import data as market
 from . import indicators as ind
-from .backtest import BacktestConfig
-from .risk import RiskConfig, round_exposure, size_positions
+from .backtest import BacktestConfig, align, portfolio_targets
+from .risk import RiskConfig, round_exposure
 from .strategies import Strategy
 
 STATE_DIR = Path(__file__).resolve().parent.parent / "state"
@@ -34,13 +34,14 @@ def _now() -> str:
 class PaperTrader:
     def __init__(self, strategy: Strategy, symbols: list[str], interval: str = "4h", capital: float = 10_000.0,
                  cfg: BacktestConfig | None = None, risk: RiskConfig | None = None, name: str | None = None,
-                 warmup_bars: int = 800, price_fn=None, candles_fn=None, state_dir: Path = STATE_DIR):
+                 warmup_bars: int = 2500, price_fn=None, candles_fn=None, state_dir: Path = STATE_DIR):
         self.strategy, self.symbols, self.interval = strategy, symbols, interval
         self.cfg = cfg or BacktestConfig(capital=capital, bars_per_year=market.BARS_PER_YEAR[interval])
         self.risk = risk or RiskConfig()
         self.name = name or f"{strategy.name}_{interval}"
         self.warmup = warmup_bars
         self.price_fn = price_fn or self._live_price
+        self.live = candles_fn is None
         self.candles_fn = candles_fn or self._live_candles
         state_dir.mkdir(parents=True, exist_ok=True)
         self.state_path = state_dir / f"{self.name}.json"
@@ -52,12 +53,11 @@ class PaperTrader:
     def _load(self, capital: float) -> dict:
         if self.state_path.exists():
             return json.loads(self.state_path.read_text())
-        w = self.cfg.weights or {s: 1 / len(self.symbols) for s in self.symbols}
         return {
             "created": _now(), "strategy": self.strategy.name, "params": self.strategy.params,
-            "interval": self.interval, "initial_capital": capital,
-            "sleeves": {s: {"cash": capital * w[s], "qty": 0.0, "stop": None, "peak": None, "last_bar": None,
-                            "blocked_bars": 0, "entry": None} for s in self.symbols},
+            "interval": self.interval, "initial_capital": capital, "cash": capital, "last_bar": None,
+            "positions": {s: {"qty": 0.0, "stop": None, "peak": None, "blocked_bars": 0, "wait_reset": False}
+                          for s in self.symbols},
         }
 
     def _save(self):
@@ -74,88 +74,111 @@ class PaperTrader:
         return market.fetch_klines(symbol, self.interval, start)
 
     # ---------- exécution simulée ----------
-    def _log_trade(self, symbol: str, side: str, qty: float, price: float, fee: float, reason: str, equity: float):
+    def _equity(self, prices: dict) -> float:
+        return self.state["cash"] + sum(p["qty"] * prices[s] for s, p in self.state["positions"].items())
+
+    def _log_trade(self, symbol, side, qty, price, fee, reason, equity):
         new = not self.trades_path.exists()
         with self.trades_path.open("a", newline="") as f:
             w = csv.writer(f)
             if new:
-                w.writerow(["time", "symbol", "side", "qty", "price", "notional", "fee", "reason", "sleeve_equity"])
+                w.writerow(["time", "symbol", "side", "qty", "price", "notional", "fee", "reason", "portfolio_equity"])
             w.writerow([_now(), symbol, side, f"{qty:.8f}", f"{price:.2f}", f"{qty * price:.2f}", f"{fee:.4f}", reason, f"{equity:.2f}"])
         print(f"[{_now()}] {side:4s} {symbol} {qty:.6f} @ {price:,.2f} ({reason})")
 
-    def _trade_to(self, symbol: str, w: float, price: float, reason: str):
-        sl = self.state["sleeves"][symbol]
-        eq = sl["cash"] + sl["qty"] * price
-        target_qty = w * eq / price
-        delta = target_qty - sl["qty"]
-        if abs(delta) * price < 1.0:  # en dessous de 1 $ : on ignore
+    def _sell(self, sym, q, price, reason, eq):
+        pos = self.state["positions"][sym]
+        fill = price * (1 - self.cfg.slippage)
+        fee = q * fill * self.cfg.fee
+        self.state["cash"] += q * fill - fee
+        pos["qty"] -= q
+        if pos["qty"] <= 1e-12:
+            pos.update(qty=0.0, stop=None, peak=None)
+        self._log_trade(sym, "SELL", q, fill, fee, reason, eq)
+
+    def _buy(self, sym, q, price, eq):
+        pos = self.state["positions"][sym]
+        fill = price * (1 + self.cfg.slippage)
+        q = min(q, self.state["cash"] / (fill * (1 + self.cfg.fee)))
+        if q * fill < 1.0:  # moins de 1 $ : ignoré
             return
-        if delta > 0:
-            fill = price * (1 + self.cfg.slippage)
-            delta = min(delta, sl["cash"] / (fill * (1 + self.cfg.fee)))
-            fee = delta * fill * self.cfg.fee
-            sl["cash"] -= delta * fill + fee
-            if sl["qty"] <= 0:
-                sl["entry"] = {"time": _now(), "price": fill}
-                sl["peak"] = price
-            sl["qty"] += delta
-            self._log_trade(symbol, "BUY", delta, fill, fee, reason, eq)
-        else:
-            q = -delta if w > 0 else sl["qty"]
-            fill = price * (1 - self.cfg.slippage)
-            fee = q * fill * self.cfg.fee
-            sl["cash"] += q * fill - fee
-            sl["qty"] -= q
-            if w <= 0 or sl["qty"] <= 1e-12:
-                sl["qty"], sl["stop"], sl["peak"], sl["entry"] = 0.0, None, None, None
-            self._log_trade(symbol, "SELL", q, fill, fee, reason, eq)
+        fee = q * fill * self.cfg.fee
+        self.state["cash"] -= q * fill + fee
+        if pos["qty"] <= 0:
+            pos["peak"] = price
+        pos["qty"] += q
+        self._log_trade(sym, "BUY", q, fill, fee, "signal", eq)
 
     # ---------- boucle ----------
     def step(self) -> dict:
-        """Un cycle : stop intra-bougie puis, si une nouvelle bougie est close, nouvelle décision."""
-        snapshot = {}
-        for sym in self.symbols:
-            sl = self.state["sleeves"][sym]
-            price = self.price_fn(sym)
-            if sl["qty"] > 0 and sl["stop"] is not None and price <= sl["stop"]:
-                self._trade_to(sym, 0.0, price, "stop")
-                sl["blocked_bars"] = self.cfg.stop_cooldown
+        """Un cycle : stops intra-bougie puis, si une nouvelle bougie est close, nouvelle décision."""
+        st = self.state
+        prices = {s: self.price_fn(s) for s in self.symbols}
+        for s, pos in st["positions"].items():
+            if pos["qty"] > 0 and pos["stop"] is not None and prices[s] <= pos["stop"]:
+                self._sell(s, pos["qty"], prices[s], "stop", self._equity(prices))
+                pos["blocked_bars"] = self.cfg.stop_cooldown
+                pos["wait_reset"] = self.risk.reentry == "fresh"
 
-            df = self.candles_fn(sym)
-            last_bar = str(df.index[-1])
-            if last_bar != sl["last_bar"]:
-                sl["last_bar"] = last_bar
-                target = float(size_positions(df, self.strategy.signal(df), self.risk, self.cfg.bars_per_year).iloc[-1])
-                if sl["blocked_bars"] > 0:
-                    sl["blocked_bars"] -= 1
-                    target = 0.0
-                eq = sl["cash"] + sl["qty"] * price
-                cur_w = sl["qty"] * price / eq if eq > 0 else 0.0
-                w = round_exposure(target, cur_w, self.risk.rebalance_band)
-                if abs(w - cur_w) > 1e-9:
-                    self._trade_to(sym, w, price, "signal")
-                # stop suiveur sur la clôture de la bougie
-                a = ind.atr(df, self.risk.atr_n).iloc[-1]
-                if sl["qty"] > 0 and self.risk.stop_atr and np.isfinite(a):
-                    close = float(df["close"].iloc[-1])
-                    sl["peak"] = max(sl["peak"] or close, close)
-                    new_stop = sl["peak"] - self.risk.stop_atr * a
-                    sl["stop"] = new_stop if sl["stop"] is None else max(sl["stop"], new_stop)
-            snapshot[sym] = {"price": price, "equity": sl["cash"] + sl["qty"] * price,
-                             "exposure": sl["qty"] * price / max(sl["cash"] + sl["qty"] * price, 1e-9), "stop": sl["stop"]}
-        total = sum(v["equity"] for v in snapshot.values())
+        if self.live and st["last_bar"]:
+            # inutile de retélécharger l'historique tant qu'aucune nouvelle bougie n'est close
+            ms = market.INTERVAL_MS[self.interval]
+            expected = pd.Timestamp((time.time() * 1000 // ms) * ms - ms, unit="ms", tz="UTC")
+            new_bar_possible = str(expected) != st["last_bar"]
+        else:
+            new_bar_possible = True
+        data = align({s: self.candles_fn(s) for s in self.symbols}) if new_bar_possible else None
+        last_bar = str(next(iter(data.values())).index[-1]) if data is not None else st["last_bar"]
+        if last_bar != st["last_bar"]:
+            st["last_bar"] = last_bar
+            targets = portfolio_targets(self.strategy, data, self.risk, self.cfg)
+            eq = self._equity(prices)
+            band = self.risk.rebalance_band / len(self.symbols)
+            want = {}
+            for s, pos in st["positions"].items():
+                d = float(targets[s].iloc[-1])
+                if pos["wait_reset"]:
+                    if d <= 1e-9 and pos["blocked_bars"] <= 0:
+                        pos["wait_reset"] = False
+                    d = 0.0
+                if pos["blocked_bars"] > 0:
+                    pos["blocked_bars"] -= 1
+                    d = 0.0
+                cur = pos["qty"] * prices[s] / eq if eq > 0 else 0.0
+                want[s] = (round_exposure(d, cur, band), cur)
+            for s, (w, cur) in want.items():  # ventes d'abord
+                if w < cur - 1e-9:
+                    pos = st["positions"][s]
+                    q = pos["qty"] - w * eq / prices[s] if w > 0 else pos["qty"]
+                    self._sell(s, q, prices[s], "signal", eq)
+            for s, (w, cur) in want.items():  # puis achats
+                if w > cur + 1e-9:
+                    self._buy(s, w * eq / prices[s] - st["positions"][s]["qty"], prices[s], eq)
+            # stop suiveur sur la clôture de la bougie
+            for s, pos in st["positions"].items():
+                a = ind.atr(data[s], self.risk.atr_n).iloc[-1]
+                if pos["qty"] > 0 and self.risk.stop_atr and np.isfinite(a):
+                    close = float(data[s]["close"].iloc[-1])
+                    pos["peak"] = max(pos["peak"] or close, close)
+                    new_stop = pos["peak"] - self.risk.stop_atr * a
+                    pos["stop"] = new_stop if pos["stop"] is None else max(pos["stop"], new_stop)
+
+        eq = self._equity(prices)
+        snap = {s: {"price": prices[s], "exposure": p["qty"] * prices[s] / eq if eq > 0 else 0.0, "stop": p["stop"]}
+                for s, p in st["positions"].items()}
         new = not self.equity_path.exists()
         with self.equity_path.open("a", newline="") as f:
             w = csv.writer(f)
             if new:
-                w.writerow(["time", "equity", *[f"{s}_exposure" for s in self.symbols]])
-            w.writerow([_now(), f"{total:.2f}", *[f"{snapshot[s]['exposure']:.3f}" for s in self.symbols]])
+                w.writerow(["time", "equity", "cash", *[f"{s}_exposure" for s in self.symbols]])
+            w.writerow([_now(), f"{eq:.2f}", f"{st['cash']:.2f}", *[f"{snap[s]['exposure']:.3f}" for s in self.symbols]])
         self._save()
-        return {"time": _now(), "equity": total, "pnl_pct": (total / self.state["initial_capital"] - 1) * 100, "sleeves": snapshot}
+        return {"time": _now(), "equity": eq, "pnl_pct": (eq / st["initial_capital"] - 1) * 100, "positions": snap}
 
-    def status_line(self, snap: dict) -> str:
-        parts = [f"{s}: {v['price']:,.2f} expo {v['exposure']:.0%}" + (f" stop {v['stop']:,.0f}" if v["stop"] else "")
-                 for s, v in snap["sleeves"].items()]
+    @staticmethod
+    def status_line(snap: dict) -> str:
+        parts = [f"{s}: {v['price']:,.2f} poids {v['exposure']:.0%}" + (f" stop {v['stop']:,.0f}" if v["stop"] else "")
+                 for s, v in snap["positions"].items()]
         return f"[{snap['time']}] capital fictif {snap['equity']:,.2f} $ ({snap['pnl_pct']:+.2f} %) | " + " | ".join(parts)
 
     def run(self, poll_seconds: int = 60, max_cycles: int | None = None):

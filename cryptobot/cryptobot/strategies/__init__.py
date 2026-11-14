@@ -213,8 +213,74 @@ class Ensemble(Strategy):
         super().__init__("ensemble", params or {}, {})
         self.members = members or [EmaCross(), DonchianBreakout(), TimeSeriesMomentum(), MacdTrend()]
 
+    def with_params(self, **params):
+        return Ensemble({**self.params, **params}, members=self.members)
+
     def signal(self, df):
         return pd.concat([m.signal(df) for m in self.members], axis=1).mean(axis=1)
+
+
+class Rotation(Strategy):
+    """Stratégie de PORTEFEUILLE (BTC + ETH, trésorerie commune) :
+
+    1. Score de tendance par actif = moyenne de 3 modèles (EMA, Donchian, momentum) → 0 à 1.
+    2. Filtre de marché : BTC « tire » tout le marché crypto. Si BTC est sous sa moyenne longue
+       (`market_n` barres), on n'achète RIEN, même si ETH a l'air de monter.
+    3. Option rotation : l'actif le plus fort (momentum sur `rs_n` barres) reçoit plus de capital
+       (`tilt`) ; si un seul actif est en tendance, il peut recevoir le capital de l'autre (`concentrate`).
+       Testé en walk-forward sur 2018-2024 : la rotation n'a PAS amélioré les résultats, elle est donc
+       désactivée par défaut (tilt=0, concentrate=False). Le filtre de marché, lui, réduit les pertes.
+    4. Ciblage de volatilité par actif (via RiskConfig), poids total ≤ 100 %.
+    """
+
+    def __init__(self, params=None):
+        super().__init__(
+            "rotation",
+            {"market_filter": True, "market_n": 600, "rs_n": 180, "tilt": 0.0, "concentrate": False, "macd": True,
+             "fast": 20, "slow": 100, "entry": 55, "exit": 20, "base": 30, **(params or {})},
+            {},
+        )
+
+    def signal(self, df):
+        raise TypeError("rotation est une stratégie de portefeuille : utiliser portfolio_weights()")
+
+    def trend_scores(self, df: pd.DataFrame) -> pd.Series:
+        p = self.params
+        members = [EmaCross({"fast": p["fast"], "slow": p["slow"]}),
+                   DonchianBreakout({"entry": p["entry"], "exit": p["exit"]}),
+                   TimeSeriesMomentum({"base": p["base"]})]
+        if p["macd"]:
+            members.append(MacdTrend())
+        return pd.concat([m.signal(df) for m in members], axis=1).mean(axis=1)
+
+    def portfolio_weights(self, data: dict[str, pd.DataFrame], risk, bars_per_year: float) -> dict[str, pd.Series]:
+        from ..risk import size_positions
+
+        p = self.params
+        syms = list(data)
+        k = len(syms)
+        market = data["BTCUSDT"] if "BTCUSDT" in data else data[syms[0]]
+        mc = market["close"]
+        risk_on = (mc > ind.ema(mc, p["market_n"])).astype(float).reindex(data[syms[0]].index).fillna(0.0)
+        if not p["market_filter"]:
+            risk_on[:] = 1.0
+
+        expo = pd.DataFrame({s: size_positions(df, self.trend_scores(df), risk, bars_per_year) for s, df in data.items()})
+        on = expo > 1e-9
+
+        # force relative : momentum de chaque actif sur rs_n barres, le meilleur est « leader »
+        mom = pd.DataFrame({s: df["close"] / df["close"].shift(p["rs_n"]) for s, df in data.items()})
+        leader = mom.eq(mom.max(axis=1), axis=0) & mom.notna()
+        alloc = pd.DataFrame(1.0 / k, index=expo.index, columns=syms)
+        if k > 1 and p["tilt"]:
+            alloc = alloc.where(~leader, (1 + p["tilt"]) / k).where(leader, (1 - p["tilt"]) / k)
+        if p["concentrate"]:
+            active = alloc.where(on, 0.0).sum(axis=1).replace(0, np.nan)
+            alloc = alloc.div(active, axis=0).fillna(0.0).clip(upper=1.0)
+        w = (alloc * expo).mul(risk_on, axis=0)
+        total = w.sum(axis=1)
+        w = w.div(total.clip(lower=1.0), axis=0)  # jamais plus de 100 % investi
+        return {s: w[s] for s in syms}
 
 
 REGISTRY: dict[str, type[Strategy]] = {
@@ -226,6 +292,7 @@ REGISTRY: dict[str, type[Strategy]] = {
     "tsmom": TimeSeriesMomentum,
     "regime": RegimeAdaptive,
     "ensemble": Ensemble,
+    "rotation": Rotation,
 }
 
 

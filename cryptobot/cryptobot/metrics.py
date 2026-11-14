@@ -100,6 +100,31 @@ def bootstrap_ci(returns: np.ndarray, bars_per_year: float, n_samples: int = 100
     }
 
 
+def loss_stats(equity: pd.Series) -> dict:
+    """Fréquence des pertes : ce qu'un investisseur ressent vraiment."""
+    if not isinstance(equity.index, pd.DatetimeIndex) or len(equity) < 2:
+        return {}
+    out = {}
+    monthly = equity.resample("ME").last()
+    mret = monthly.pct_change().dropna()
+    mret = pd.concat([pd.Series([monthly.iloc[0] / equity.iloc[0] - 1], index=monthly.index[:1]), mret])
+    if len(mret) >= 3:
+        out["losing_months"] = float((mret < 0).mean())
+        out["worst_month"] = float(mret.min())
+    # Toutes les fenêtres glissantes de 12 mois : « si j'avais commencé n'importe quel jour ».
+    daily = equity.resample("D").last().dropna()
+    if len(daily) > 400:
+        r12 = (daily / daily.shift(365) - 1).dropna()
+        out["losing_12m"] = float((r12 < 0).mean())
+        out["worst_12m"] = float(r12.min())
+        out["median_12m"] = float(r12.median())
+    yearly = equity.resample("YE").last()
+    yret = yearly / pd.concat([pd.Series([equity.iloc[0]]), yearly.iloc[:-1]]).to_numpy() - 1
+    out["yearly"] = {int(t.year): float(v) for t, v in yret.items()}
+    out["worst_year"] = float(yret.min())
+    return out
+
+
 def compute_metrics(equity: pd.Series, trades: pd.DataFrame | None, bars_per_year: float, exposure: pd.DataFrame | None = None) -> dict:
     equity = equity.dropna()
     r = equity.pct_change().dropna().to_numpy()
@@ -125,8 +150,9 @@ def compute_metrics(equity: pd.Series, trades: pd.DataFrame | None, bars_per_yea
         "max_dd_duration_days": max_drawdown_duration(equity).total_seconds() / 86400,
         "psr": probabilistic_sharpe(r),
     }
+    m.update(loss_stats(equity))
     if exposure is not None and not exposure.empty:
-        m["avg_exposure"] = float(exposure.mean(axis=1).mean())
+        m["avg_exposure"] = float(exposure.sum(axis=1).mean())
     if trades is not None and not trades.empty:
         pnl = trades["pnl"]
         wins, losses = pnl[pnl > 0], pnl[pnl <= 0]
@@ -159,6 +185,12 @@ LABELS = {
     "max_dd_duration_days": ("Plus longue période sous l'eau", "{:.0f} j"),
     "psr": ("Proba. Sharpe > 0 (PSR)", "{:.1%}"),
     "avg_exposure": ("Exposition moyenne", "{:.0%}"),
+    "losing_months": ("Mois perdants", "{:.0%}"),
+    "worst_month": ("Pire mois", "{:+.1%}"),
+    "worst_year": ("Pire année civile", "{:+.1%}"),
+    "losing_12m": ("Périodes de 12 mois perdantes", "{:.0%}"),
+    "worst_12m": ("Pire période de 12 mois", "{:+.1%}"),
+    "median_12m": ("Gain médian sur 12 mois", "{:+.1%}"),
     "n_trades": ("Nombre de trades", "{:d}"),
     "trades_per_year": ("Trades par an", "{:.1f}"),
     "win_rate": ("Taux de réussite", "{:.1%}"),

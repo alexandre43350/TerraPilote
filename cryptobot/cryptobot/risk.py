@@ -26,6 +26,8 @@ class RiskConfig:
     atr_n: int = 14
     rebalance_band: float = 0.25      # on ne rééquilibre que si l'écart d'exposition > 25 points
     max_drawdown_halt: float | None = None  # ex. 0.35 : on coupe tout si le drawdown dépasse 35 %
+    reentry: str = "cooldown"         # après un stop : "cooldown" (attendre stop_cooldown barres)
+                                      # ou "fresh" (attendre en plus que le signal retombe à 0)
 
 
 def size_positions(df: pd.DataFrame, signal: pd.Series, risk: RiskConfig, bars_per_year: float) -> pd.Series:

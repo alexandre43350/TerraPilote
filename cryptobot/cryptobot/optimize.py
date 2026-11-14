@@ -17,9 +17,9 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from .backtest import BacktestConfig, BacktestResult, run, run_sleeve
+from .backtest import BacktestConfig, BacktestResult, align, portfolio_targets, run, run_portfolio
 from .metrics import bootstrap_ci, deflated_sharpe, sharpe
-from .risk import RiskConfig, size_positions
+from .risk import RiskConfig
 from .strategies import Strategy
 
 
@@ -31,13 +31,6 @@ class WalkForwardResult:
     n_trials: int
     deflated_sharpe: float
     bootstrap: dict = field(default_factory=dict)
-
-
-def _align(data: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
-    common = None
-    for df in data.values():
-        common = df.index if common is None else common.intersection(df.index)
-    return {s: df.loc[common] for s, df in data.items()}
 
 
 def _score(eq: pd.Series, bars_per_year: float, objective: str) -> float:
@@ -61,27 +54,22 @@ def walk_forward(data: dict[str, pd.DataFrame], strategy: Strategy, cfg: Backtes
                  objective: str = "sharpe", verbose: bool = False) -> WalkForwardResult:
     cfg = cfg or BacktestConfig()
     risk = risk or RiskConfig()
-    data = _align(data)
+    data = align(data)
     index = next(iter(data.values())).index
     bars_per_day = cfg.bars_per_year / 365
     train_bars, test_bars = int(train_days * bars_per_day), int(test_days * bars_per_day)
     if len(index) < train_bars + test_bars:
         raise ValueError(f"Historique trop court : {len(index)} barres pour {train_bars}+{test_bars} demandées.")
-    weights = cfg.weights or {s: 1 / len(data) for s in data}
 
     combos = strategy.grid_combinations()
     # 1) Une simulation complète par combinaison (les indicateurs sont causaux, donc on peut
     #    calculer sur tout l'historique puis ne LIRE que la fenêtre d'entraînement).
     targets_by_combo, equity_by_combo = [], []
     for k, params in enumerate(combos):
-        strat = strategy.with_params(**params)
-        tg, eqs = {}, []
-        for sym, df in data.items():
-            tg[sym] = size_positions(df, strat.signal(df), risk, cfg.bars_per_year)
-            eq, *_ = run_sleeve(df, tg[sym], cfg.capital * weights[sym], cfg, risk, sym)
-            eqs.append(eq)
+        tg = portfolio_targets(strategy.with_params(**params), data, risk, cfg)
+        eq, *_ = run_portfolio(data, tg, cfg.capital, cfg, risk)
         targets_by_combo.append(tg)
-        equity_by_combo.append(sum(eqs))
+        equity_by_combo.append(eq)
         if verbose:
             print(f"\r  simulation {k + 1}/{len(combos)}", end="", flush=True)
     if verbose:

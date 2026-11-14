@@ -5,10 +5,11 @@ import pytest
 from cryptobot import data as market
 from cryptobot import indicators as ind
 from cryptobot import strategies
-from cryptobot.backtest import BacktestConfig, run, run_sleeve
+from cryptobot.backtest import BacktestConfig, run, run_portfolio, run_sleeve
 from cryptobot.metrics import compute_metrics, drawdown, probabilistic_sharpe
 from cryptobot.optimize import walk_forward
 from cryptobot.paper import PaperTrader
+from cryptobot.profiles import PROFILES
 from cryptobot.risk import RiskConfig, round_exposure
 
 NO_RISK = RiskConfig(target_vol=None, stop_atr=None, rebalance_band=0.0)
@@ -41,7 +42,10 @@ def test_donchian_excludes_current_bar(df):
     assert d["upper"].iloc[50] == pytest.approx(df["high"].iloc[30:50].max())
 
 
-@pytest.mark.parametrize("name", [n for n in strategies.REGISTRY])
+SINGLE = [n for n in strategies.REGISTRY if n != "rotation"]
+
+
+@pytest.mark.parametrize("name", SINGLE)
 def test_no_lookahead(df, name):
     """Le signal à t ne doit pas changer si on supprime les données postérieures à t."""
     strat = strategies.get(name)
@@ -51,7 +55,7 @@ def test_no_lookahead(df, name):
         pd.testing.assert_series_equal(part, full.iloc[:k], check_names=False)
 
 
-@pytest.mark.parametrize("name", [n for n in strategies.REGISTRY])
+@pytest.mark.parametrize("name", SINGLE)
 def test_signal_range(df, name):
     s = strategies.get(name).signal(df)
     assert s.between(0, 1).all()
@@ -146,29 +150,93 @@ def test_walk_forward_is_out_of_sample():
     assert 0 <= wf.deflated_sharpe <= 1
 
 
+# ---------- portefeuille / rotation / profils ----------
+def test_shared_cash_never_overspends():
+    d = {"BTCUSDT": market.synthetic(2000, seed=11), "ETHUSDT": market.synthetic(2000, seed=12)}
+    tg = {s: pd.Series(0.9, index=df.index) for s, df in d.items()}  # 180 % demandés au total
+    eq, held, _, _ = run_portfolio(d, tg, 1000, BacktestConfig(), NO_RISK)
+    assert (held.sum(axis=1) <= 1.0 + 1e-6).all()
+    assert (eq > 0).all()
+
+
+def test_rotation_weights_bounded_and_filtered():
+    d = {"BTCUSDT": market.synthetic(3000, seed=21), "ETHUSDT": market.synthetic(3000, seed=22)}
+    for params in ({}, {"tilt": 0.5, "concentrate": True}):
+        w = strategies.get("rotation", **params).portfolio_weights(d, RiskConfig(), 365 * 6)
+        total = w["BTCUSDT"] + w["ETHUSDT"]
+        assert (total <= 1.0 + 1e-9).all() and (total >= 0).all()
+        btc = d["BTCUSDT"]["close"]
+        risk_off = btc <= ind.ema(btc, 600)
+        assert (total[risk_off] == 0).all()  # filtre de marché : rien acheté quand BTC est baissier
+
+
+def test_rotation_no_lookahead():
+    d = {"BTCUSDT": market.synthetic(2500, seed=31), "ETHUSDT": market.synthetic(2500, seed=32)}
+    st = strategies.get("rotation")
+    full = st.portfolio_weights(d, RiskConfig(), 365 * 6)
+    part = st.portfolio_weights({s: df.iloc[:1800] for s, df in d.items()}, RiskConfig(), 365 * 6)
+    for s in d:
+        pd.testing.assert_series_equal(part[s], full[s].iloc[:1800], check_names=False)
+
+
+def test_profiles_run():
+    d = {"BTCUSDT": market.synthetic(2500, seed=41), "ETHUSDT": market.synthetic(2500, seed=42)}
+    for name, prof in PROFILES.items():
+        res = run(d, strategies.get(prof["strategy"], **prof["params"]), BacktestConfig(), RiskConfig(**prof["risk"]))
+        assert np.isfinite(res.metrics["sharpe"]), name
+        assert "losing_12m" in res.metrics
+
+
+def test_reentry_fresh_waits_for_signal_reset():
+    prices = [100] * 30 + [101, 102, 103, 60] + [61 + i for i in range(30)]
+    d = _flat_df(prices)
+    d["high"], d["low"] = d["close"] * 1.01, d["close"] * 0.99
+    sig = pd.Series(1.0, index=d.index)  # le signal ne retombe jamais à 0
+    risk = RiskConfig(target_vol=None, stop_atr=3.0, rebalance_band=0.0, reentry="fresh")
+    _, held, trades, _ = run_sleeve(d, sig, 1000, BacktestConfig(fee=0, slippage=0, stop_cooldown=2), risk)
+    assert trades[0]["reason"] == "stop"
+    assert held.iloc[-1] == 0  # pas de rachat sans nouveau signal
+
+
 # ---------- paper trading ----------
-def test_paper_trader_cycle(tmp_path):
-    hist = market.synthetic(900, seed=7)
-    # une tendance haussière nette pour forcer un achat
+def _trend_hist(n=2600):
+    hist = market.synthetic(n, seed=7)
     hist["close"] = np.linspace(100, 300, len(hist))
     hist["open"] = hist["close"].shift().fillna(100)
     hist["high"], hist["low"] = hist["close"] * 1.005, hist["close"] * 0.995
-    state = {"n": 800}
+    return hist
+
+
+def test_paper_trader_cycle(tmp_path):
+    hist = _trend_hist()
+    state = {"n": 2000}
     candles = lambda s: hist.iloc[: state["n"]]
     price = lambda s: float(hist["close"].iloc[state["n"] - 1])
     pt = PaperTrader(strategies.get("ema_cross"), ["BTCUSDT"], "4h", 1000, risk=RiskConfig(target_vol=None),
                      price_fn=price, candles_fn=candles, state_dir=tmp_path)
     snap = pt.step()
-    assert snap["sleeves"]["BTCUSDT"]["exposure"] > 0.9
-    assert (tmp_path / f"{pt.name}_trades.csv").exists()
+    assert snap["positions"]["BTCUSDT"]["exposure"] > 0.9
     # même bougie : aucune nouvelle décision
     pt.step()
     assert len((tmp_path / f"{pt.name}_trades.csv").read_text().strip().splitlines()) == 2
     # reprise depuis l'état sauvegardé
     pt2 = PaperTrader(strategies.get("ema_cross"), ["BTCUSDT"], "4h", 1000, price_fn=price, candles_fn=candles, state_dir=tmp_path)
-    assert pt2.state["sleeves"]["BTCUSDT"]["qty"] == pytest.approx(pt.state["sleeves"]["BTCUSDT"]["qty"])
+    assert pt2.state["positions"]["BTCUSDT"]["qty"] == pytest.approx(pt.state["positions"]["BTCUSDT"]["qty"])
     # krach : le stop doit couper la position
-    stop = pt2.state["sleeves"]["BTCUSDT"]["stop"]
+    stop = pt2.state["positions"]["BTCUSDT"]["stop"]
     pt2.price_fn = lambda s: stop * 0.9
     pt2.step()
-    assert pt2.state["sleeves"]["BTCUSDT"]["qty"] == 0
+    assert pt2.state["positions"]["BTCUSDT"]["qty"] == 0
+
+
+def test_paper_trader_portfolio_strategy(tmp_path):
+    hist = _trend_hist()
+    candles = lambda s: hist.iloc[:2000]
+    price = lambda s: float(hist["close"].iloc[1999])
+    prof = PROFILES["prudent"]
+    pt = PaperTrader(strategies.get(prof["strategy"]), ["BTCUSDT", "ETHUSDT"], "4h", 1000,
+                     risk=RiskConfig(**prof["risk"]), price_fn=price, candles_fn=candles, state_dir=tmp_path)
+    snap = pt.step()
+    total = sum(v["exposure"] for v in snap["positions"].values())
+    assert 0 < total <= 1.0 + 1e-9
+    assert pt.state["cash"] >= 0

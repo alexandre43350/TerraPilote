@@ -15,7 +15,8 @@ from .metrics import LABELS, drawdown, fmt  # noqa: E402
 REPORT_DIR = Path(__file__).resolve().parent.parent / "reports"
 
 MAIN_KEYS = ["final_equity", "total_return", "cagr", "volatility", "sharpe", "sortino", "max_drawdown",
-             "calmar", "max_dd_duration_days", "psr", "avg_exposure", "n_trades", "trades_per_year",
+             "calmar", "max_dd_duration_days", "psr", "losing_months", "worst_month", "worst_year",
+             "losing_12m", "worst_12m", "median_12m", "avg_exposure", "n_trades", "trades_per_year",
              "win_rate", "profit_factor", "avg_win_pct", "avg_loss_pct", "expectancy_pct",
              "avg_duration_days", "stop_exits", "fees_paid"]
 

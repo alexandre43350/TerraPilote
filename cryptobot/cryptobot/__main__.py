@@ -21,6 +21,7 @@ from . import strategies
 from .backtest import BacktestConfig, run
 from .optimize import walk_forward
 from .report import REPORT_DIR, markdown_table, metrics_table, plot_equity
+from .profiles import PROFILES
 from .risk import RiskConfig
 
 
@@ -36,12 +37,26 @@ def _parse_params(items: list[str]) -> dict:
 
 
 def _risk(a) -> RiskConfig:
-    return RiskConfig(
-        target_vol=None if a.target_vol <= 0 else a.target_vol,
-        stop_atr=None if a.stop_atr <= 0 else a.stop_atr,
-        rebalance_band=a.band,
-        max_drawdown_halt=a.dd_halt or None,
-    )
+    """Profil choisi, puis options explicites de la ligne de commande par-dessus."""
+    kw = dict(PROFILES[a.profile]["risk"]) if getattr(a, "profile", None) else {}
+    if a.target_vol is not None:
+        kw["target_vol"] = a.target_vol or None
+    if a.stop_atr is not None:
+        kw["stop_atr"] = a.stop_atr or None
+    if a.band is not None:
+        kw["rebalance_band"] = a.band
+    if a.dd_halt:
+        kw["max_drawdown_halt"] = a.dd_halt
+    if a.reentry:
+        kw["reentry"] = a.reentry
+    return RiskConfig(**kw)
+
+
+def _strategy(a):
+    """Stratégie : celle du profil, sauf si -s est donné explicitement."""
+    name = a.strategy or (PROFILES[a.profile]["strategy"] if a.profile else "ensemble")
+    params = {**(PROFILES[a.profile]["params"] if a.profile and not a.strategy else {}), **_parse_params(a.param)}
+    return strategies.get(name, **params)
 
 
 def _cfg(a) -> BacktestConfig:
@@ -65,7 +80,7 @@ def cmd_fetch(a):
 
 def cmd_backtest(a):
     data = _load(a)
-    strat = strategies.get(a.strategy, **_parse_params(a.param))
+    strat = _strategy(a)
     res = run(data, strat, _cfg(a), _risk(a))
     print(f"\nStratégie : {strat.name} {strat.params}\n")
     print(metrics_table({strat.name: res.metrics, "Buy & Hold": res.benchmark_metrics}))
@@ -96,14 +111,22 @@ def cmd_compare(a):
 
 def cmd_walkforward(a):
     data = _load(a)
-    names = list(strategies.REGISTRY) if a.strategy == "all" else [a.strategy]
-    names = [n for n in names if n != "buy_hold"]
-    cfg, risk = _cfg(a), _risk(a)
+    if a.strategy == "all":
+        jobs = [(n, strategies.get(n), _risk(a)) for n in strategies.REGISTRY if n != "buy_hold"]
+    elif a.profile == "all":
+        jobs = []
+        for prof in PROFILES:
+            a.profile = prof
+            jobs.append((prof, _strategy(a), _risk(a)))
+        a.profile = "all"
+    else:
+        st = _strategy(a)
+        jobs = [(a.profile or st.name, st, _risk(a))]
+    cfg = _cfg(a)
     cols, curves, extra, md = {}, {}, {}, []
-    for name in names:
-        print(f"\n=== Walk-forward : {name} ===")
-        wf = walk_forward(data, strategies.get(name, **_parse_params(a.param)), cfg, risk,
-                          a.train_days, a.test_days, a.objective, verbose=True)
+    for name, strat, risk in jobs:
+        print(f"\n=== Walk-forward : {name} ({strat.name}) ===")
+        wf = walk_forward(data, strat, cfg, risk, a.train_days, a.test_days, a.objective, verbose=True)
         if not cols:
             cols["Buy & Hold"], curves["Buy & Hold"] = wf.oos.benchmark_metrics, wf.oos.benchmark
         cols[name], curves[name] = wf.oos.metrics, wf.oos.equity
@@ -111,7 +134,7 @@ def cmd_walkforward(a):
         extra[name] = (f"DSR {wf.deflated_sharpe:.1%} ({wf.n_trials} combinaisons) | Sharpe IC90 "
                        f"[{b['sharpe_ci90'][0]:.2f} ; {b['sharpe_ci90'][1]:.2f}] | CAGR IC90 "
                        f"[{b['cagr_ci90'][0]:+.0%} ; {b['cagr_ci90'][1]:+.0%}] | P(perte) {b['prob_loss']:.0%}") if b else ""
-        folds = wf.folds.assign(params=wf.folds["params"].map(lambda p: {k: v for k, v in p.items() if k in strategies.get(name).grid}))
+        folds = wf.folds.assign(params=wf.folds["params"].map(lambda p: {k: v for k, v in p.items() if k in strat.grid}))
         print(folds[["test_start", "test_end", "params", "train_score", "test_sharpe"]].to_string(index=False))
         rows = "\n".join(f"| {r.test_start:%Y-%m-%d} | {r.test_end:%Y-%m-%d} | `{r.params}` | {r.train_score:.2f} | {r.test_sharpe:.2f} |"
                          for r in folds.itertuples())
@@ -121,11 +144,18 @@ def cmd_walkforward(a):
     print()
     for n, t in extra.items():
         print(f"{n:16s} {t}")
-    suffix = a.strategy
+    suffix = a.strategy or f"profil_{a.profile}" if (a.strategy or a.profile) else "ensemble"
     plot_equity(curves, REPORT_DIR / f"walkforward_{suffix}.png", f"Walk-forward out-of-sample — {', '.join(data)} {a.interval}")
     report = REPORT_DIR / f"walkforward_{suffix}.md"
     report.write_text(f"# Walk-forward {', '.join(data)} {a.interval}\n\n{markdown_table(cols)}\n\n" + "\n\n".join(md))
     print(f"\nGraphique : {REPORT_DIR / f'walkforward_{suffix}.png'}\nRapport : {report}")
+
+
+def cmd_profiles(a):
+    from . import profiles
+    for name, p in PROFILES.items():
+        print(f"{name:10s} {p['description']}\n{'':10s} stratégie={p['strategy']} risque={p['risk']}")
+    print(profiles.__doc__)
 
 
 def cmd_paper(a):
@@ -135,10 +165,11 @@ def cmd_paper(a):
     if a.optimize:
         print("Choix des paramètres sur les 2 dernières années (walk-forward)…")
         data = _load(a)
-        wf = walk_forward(data, strategies.get(a.strategy), _cfg(a), _risk(a), a.train_days, a.test_days, a.objective)
+        wf = walk_forward(data, _strategy(a), _cfg(a), _risk(a), a.train_days, a.test_days, a.objective)
         params = {**wf.folds.iloc[-1]["params"], **params}
         print(f"Paramètres retenus : {params}")
-    strat = strategies.get(a.strategy, **params)
+    a.param = [f"{k}={json.dumps(v)}" for k, v in params.items()]
+    strat = _strategy(a)
     trader = PaperTrader(strat, a.symbols, a.interval, a.capital, _cfg(a), _risk(a), name=a.name)
     trader.run(poll_seconds=a.poll, max_cycles=a.cycles)
 
@@ -155,15 +186,18 @@ def main(argv=None):
     common.add_argument("--capital", type=float, default=10_000.0, help="capital fictif en USDT")
     common.add_argument("--fee", type=float, default=0.001, help="frais par ordre (0.001 = 0,1 %%)")
     common.add_argument("--slippage", type=float, default=0.0005)
-    common.add_argument("--target-vol", type=float, default=0.60, help="volatilité annuelle visée (0 = désactivé)")
-    common.add_argument("--stop-atr", type=float, default=3.0, help="stop suiveur en multiples d'ATR (0 = désactivé)")
-    common.add_argument("--band", type=float, default=0.25, help="seuil de rééquilibrage")
+    common.add_argument("--profile", default=None, choices=[*PROFILES, "all"],
+                        help="profil de risque prêt à l'emploi : prudent, equilibre, dynamique (all : walkforward seulement)")
+    common.add_argument("--target-vol", type=float, default=None, help="volatilité annuelle visée, défaut 0.6 (0 = désactivé)")
+    common.add_argument("--stop-atr", type=float, default=None, help="stop suiveur en multiples d'ATR, défaut 3 (0 = désactivé)")
+    common.add_argument("--band", type=float, default=None, help="seuil de rééquilibrage, défaut 0.25")
+    common.add_argument("--reentry", default=None, choices=["cooldown", "fresh"], help="règle de retour après un stop")
     common.add_argument("--dd-halt", type=float, default=0.0, help="coupe-circuit drawdown, ex. 0.35 (0 = désactivé)")
     common.add_argument("--synthetic", action="store_true", help="données synthétiques (hors ligne, pour tester)")
     common.add_argument("--offline", action="store_true", help="n'utiliser que le cache local")
 
     strat_args = argparse.ArgumentParser(add_help=False)
-    strat_args.add_argument("-s", "--strategy", default="ensemble")
+    strat_args.add_argument("-s", "--strategy", default=None, help=f"{', '.join(strategies.REGISTRY)} ou all (défaut : ensemble)")
     strat_args.add_argument("-p", "--param", nargs="*", default=[], help="ex. -p fast=20 slow=100")
 
     wf_args = argparse.ArgumentParser(add_help=False)
@@ -174,6 +208,7 @@ def main(argv=None):
     sub.add_parser("fetch", parents=[common]).set_defaults(fn=cmd_fetch)
     sub.add_parser("backtest", parents=[common, strat_args]).set_defaults(fn=cmd_backtest)
     sub.add_parser("compare", parents=[common]).set_defaults(fn=cmd_compare)
+    sub.add_parser("profiles").set_defaults(fn=cmd_profiles)
     sub.add_parser("walkforward", parents=[common, strat_args, wf_args]).set_defaults(fn=cmd_walkforward)
     pp = sub.add_parser("paper", parents=[common, strat_args, wf_args])
     pp.add_argument("--poll", type=int, default=60, help="secondes entre deux relevés de prix")
