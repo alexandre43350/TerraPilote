@@ -4,6 +4,7 @@ import os
 import shutil
 import tempfile
 import unittest
+import unittest.mock
 
 from clonix import fsclone as fc
 from clonix import image as im
@@ -189,6 +190,83 @@ class ResizeDeployTest(unittest.TestCase):
                          (300 * MIB, 600 * MIB))
         self.assertIsNone(parse_wimlib("Scanning \"/dev/sda3\""))
         self.assertIsNone(parse_wimlib("Applying metadata to files: 1200 of 5000 (24%) done"))
+
+
+
+class LoopRunner(WinRunner):
+    def run(self, argv, **kw):
+        out = super().run(argv, **kw)
+        if argv[:2] == ["losetup", "--find"]:
+            return "/dev/loop7\n"
+        return out
+
+
+class ConvertTest(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir)
+        self.path, _ = ops.capture(WinRunner(), "/dev/sdw", "classique", self.dir)
+        import collections
+        usage = collections.namedtuple("usage", "total used free")
+        patcher = unittest.mock.patch("shutil.disk_usage", return_value=usage(1, 1, 700 * GIB))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_classic_image_becomes_resizable_and_deploys_on_smaller_disk(self):
+        r = LoopRunner(tools=TOOLS + ["losetup"])
+        m = ops.make_resizable(r, "classique", self.dir)
+        names = sorted(os.listdir(self.path))
+        self.assertIn("p3.wim.zst", names)
+        self.assertNotIn("p3.partclone.zst", names)
+        self.assertFalse([n for n in names if n.endswith((".raw", ".partial", ".tmp"))])
+        pipes = r.commands("pipe")
+        self.assertEqual(pipes[0][-1], ["partclone.ntfs", "-r", "-s", "-", "-o", "/dev/loop7"])
+        self.assertEqual(pipes[1][0][:3], ["wimlib-imagex", "capture", "/dev/loop7"])
+        self.assertIn(["losetup", "--detach", "/dev/loop7"], r.commands("run"))
+        self.assertEqual({p["number"]: p["mode"] for p in m["partitions"]},
+                         {1: "partclone", 2: "dd", 3: "wim", 4: "partclone"})
+        self.assertEqual(im.verify(self.path)[1], [])
+        self.assertIsNone(ops.convertible_partition(m))
+
+        d = WinRunner()
+        ops.deploy(d, im.DirSource(self.path), "/dev/sdx", self.dir)
+        self.assertIn(["mkntfs", "--quick", "--force", "--label", "Windows", "/dev/sdx3"], d.commands("run"))
+        with self.assertRaisesRegex(ClonixError, "déjà adaptable"):
+            ops.make_resizable(LoopRunner(tools=TOOLS + ["losetup"]), "classique", self.dir)
+
+    def test_failure_leaves_image_untouched(self):
+        class Failing(LoopRunner):
+            def pipeline(self, cmds, **kw):
+                if cmds[0][0] == fc.WIMLIB:
+                    raise ClonixError("échec simulé")
+                return super().pipeline(cmds, **kw)
+
+        before = sorted(os.listdir(self.path))
+        with open(os.path.join(self.path, im.MANIFEST), "rb") as f:
+            manifest_before = f.read()
+        r = Failing(tools=TOOLS + ["losetup"])
+        with self.assertRaisesRegex(ClonixError, "échec simulé"):
+            ops.make_resizable(r, "classique", self.dir)
+        self.assertEqual(sorted(os.listdir(self.path)), before)
+        with open(os.path.join(self.path, im.MANIFEST), "rb") as f:
+            self.assertEqual(f.read(), manifest_before)
+        self.assertIn(["losetup", "--detach", "/dev/loop7"], r.commands("run"))
+        self.assertEqual(im.verify(self.path)[1], [])
+
+    def test_not_enough_space(self):
+        import collections
+        usage = collections.namedtuple("usage", "total used free")
+        with unittest.mock.patch("shutil.disk_usage", return_value=usage(1, 1, 10 * GIB)):
+            with self.assertRaisesRegex(ClonixError, "Pas assez de place"):
+                ops.make_resizable(LoopRunner(tools=TOOLS + ["losetup"]), "classique", self.dir)
+
+    def test_mbr_image_refused(self):
+        r = FakeRunner(dumps={"/dev/sda": DOS_DUMP}, tree=[lsblk_disk("sda", 20 * GIB, [
+            lsblk_part("sda1", 500 * MIB, "ntfs"), lsblk_part("sda2", 2 * GIB),
+            lsblk_part("sda5", 2 * GIB, "ext4")])])
+        ops.capture(r, "/dev/sda", "mbr", self.dir)
+        with self.assertRaisesRegex(ClonixError, "MBR"):
+            ops.make_resizable(LoopRunner(tools=TOOLS + ["losetup"]), "mbr", self.dir)
 
 
 if __name__ == "__main__":

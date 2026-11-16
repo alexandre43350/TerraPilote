@@ -356,3 +356,6 @@ main { padding: 34px 40px 48px; max-width: 1480px; width: 100%; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 .limit-line { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 18px; margin: 12px 0 14px; font-size: 13px; color: var(--muted); }
 .limit-line strong { color: var(--text); font-weight: 600; }
+.link-btn { background: none; border: 0; padding: 0; margin-top: 10px; color: var(--accent); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.note .link-btn { margin-top: 0; }
+.link-btn:hover { color: var(--text); }

@@ -226,23 +226,9 @@ def capture(runner, disk_path, name, image_dir=None, compression="zstd", level="
                 rec["file"] = f"p{entry.number}.wim{ext}"
                 rec["compression"] = compression
                 runner.log(f"→ partition {entry.number} ({part.fstype}) : fichier par fichier (WIM)")
-                used = ntfs_used_bytes(runner, part.path)
-                config = os.path.join(tempfile.gettempdir(), "clonix-wim-exclude.txt")
-                if not runner.dry_run:
-                    with open(config, "w", encoding="utf-8") as f:
-                        f.write(fc.WIM_EXCLUDE)
-                cmds = [fc.wim_capture_cmd(part.path, config)]
-                if comp:
-                    cmds.append(comp)
                 runner.start_step(step)
                 step += 1
-                runner.last_wim_total = None
-                _write_stream(runner, tmp, manifest, rec["file"], cmds, rec["size"])
-                rec["min_size"] = wim_min_size(runner.last_wim_total or used, rec["size"])
-                manifest["table"]["min_bytes"] = (table.required_bytes() - rec["size"]
-                                                  + rec["min_size"] + 4 * pt.ALIGN_BYTES)
-                runner.log(f"  partition {entry.number} : au moins {dk.human_size(rec['min_size'])} "
-                           "nécessaires au déploiement")
+                _capture_wim(runner, part.path, tmp, manifest, rec, comp, table.required_bytes())
             elif mode in ("partclone", "dd"):
                 rec["file"] = f"p{entry.number}.{mode}{ext}"
                 rec["compression"] = compression
@@ -272,6 +258,27 @@ def capture(runner, disk_path, name, image_dir=None, compression="zstd", level="
     return dest, manifest
 
 
+def _capture_wim(runner, device, folder, manifest, rec, comp, required_bytes, disk_name=None):
+    """Enregistre le volume NTFS ``device`` fichier par fichier dans ``rec["file"]``.
+
+    Complète ``rec`` (taille minimale) et le manifeste (taille minimale du disque).
+    """
+    used = ntfs_used_bytes(runner, device)
+    config = os.path.join(tempfile.gettempdir(), "clonix-wim-exclude.txt")
+    if not runner.dry_run:
+        with open(config, "w", encoding="utf-8") as f:
+            f.write(fc.WIM_EXCLUDE)
+    cmds = [fc.wim_capture_cmd(device, config)]
+    if comp:
+        cmds.append(comp)
+    runner.last_wim_total = None
+    _write_stream(runner, folder, manifest, rec["file"], cmds, rec["size"], disk_name=disk_name)
+    rec["min_size"] = wim_min_size(runner.last_wim_total or used, rec["size"])
+    manifest["table"]["min_bytes"] = required_bytes - rec["size"] + rec["min_size"] + 4 * pt.ALIGN_BYTES
+    runner.log(f"  partition {rec['number']} : au moins {dk.human_size(rec['min_size'])} "
+               "nécessaires au déploiement")
+
+
 def _summary(runner, what, started, nbytes, verb, visible=True):
     """Bilan de fin : durée, volume de l'image et débit moyen."""
     if runner.dry_run:
@@ -299,11 +306,12 @@ def _write_small(runner, folder, manifest, name, data):
     manifest["files"][name] = w.record()
 
 
-def _write_stream(runner, folder, manifest, name, cmds, total):
+def _write_stream(runner, folder, manifest, name, cmds, total, disk_name=None):
+    """``name`` : nom dans le manifeste ; ``disk_name`` (facultatif) : fichier réellement écrit."""
     if runner.dry_run:
         runner.pipeline(cmds, sink=io.BytesIO(), total=total)
         return
-    with open(os.path.join(folder, name), "wb") as f:
+    with open(os.path.join(folder, disk_name or name), "wb") as f:
         w = im.HashingWriter(f)
         runner.pipeline(cmds, sink=w, total=total)
         f.flush()
@@ -314,7 +322,8 @@ def _write_stream(runner, folder, manifest, name, cmds, total):
 # ------------------------------------------------------------------- déploiement
 
 
-SMALLER_HINT = ("Pour la mettre sur un disque plus petit, recapturez le PC d'origine en cochant "
+SMALLER_HINT = ("Pour la mettre sur un disque plus petit : dans le tableau de bord, cliquez sur « Rendre "
+                "adaptable aux disques plus petits » sous l'image, ou recapturez le PC d'origine en cochant "
                 "« Image adaptable aux disques plus petits ».")
 EXPAND_MIN_GAIN = GIB  # en dessous, agrandir la partition ne vaut pas le temps passé
 
@@ -467,6 +476,152 @@ def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=N
 
 def open_image(name, image_dir=None):
     return im.DirSource(im.resolve(name, image_dir))
+
+
+# ------------------------------------------------- conversion en image adaptable
+
+
+def convertible_partition(manifest):
+    """Partition Windows d'une image classique qui peut passer en WIM, ou None."""
+    if any(r.get("mode") == "wim" for r in manifest["partitions"]):
+        return None
+    if manifest.get("table", {}).get("label") != "gpt":
+        return None
+    recs = [r for r in manifest["partitions"] if r.get("fstype") in fc.WIM_FSTYPES and r.get("mode") == "partclone"]
+    return max(recs, key=lambda r: r["size"], default=None)
+
+
+def _cleanup_run(runner, argv):
+    """Commande de nettoyage, exécutée même après une annulation."""
+    cancelled, runner.cancelled = runner.cancelled, False
+    try:
+        runner.run(argv, check=False)
+    except ClonixError:
+        pass
+    finally:
+        runner.cancelled = cancelled
+
+
+def make_resizable(runner, name, image_dir=None, level="auto"):
+    """Convertit une image classique en image adaptable aux disques plus petits.
+
+    La partition Windows de l'image est remise à plat dans un fichier temporaire
+    du support des images (vu par Linux comme un disque grâce à « losetup »),
+    puis recapturée fichier par fichier. Le PC n'est pas utilisé. Les autres
+    partitions de l'image ne changent pas. L'image n'est modifiée qu'à la fin,
+    d'un coup : en cas d'échec ou d'annulation, elle reste telle qu'avant.
+    """
+    path = im.resolve(name, image_dir)
+    source = im.DirSource(path)
+    with source.open(im.MANIFEST) as f:
+        manifest = im.load_manifest(f)
+    files = manifest["files"]
+    if any(r.get("mode") == "wim" for r in manifest["partitions"]):
+        raise ClonixError(f"L'image « {manifest['name']} » est déjà adaptable")
+    with source.open(im.TABLE) as f:
+        reader = im.VerifyingReader(f, im.TABLE, files.get(im.TABLE))
+        table = pt.parse_dump(reader.read().decode())
+        reader.read()
+    manifest.setdefault("table", {})["label"] = table.label
+    rec = convertible_partition(manifest)
+    if table.label != "gpt":
+        raise ClonixError("Conversion impossible : l'image vient d'un disque MBR (démarrage BIOS). "
+                          "Seules les images GPT (démarrage UEFI) peuvent devenir adaptables.")
+    if rec is None:
+        raise ClonixError("Conversion impossible : l'image ne contient pas de partition Windows (NTFS) "
+                          "copiée en « blocs utilisés ».")
+
+    compression = rec.get("compression") or "zstd"
+    store = os.path.dirname(path)
+    on_usb = bool(dk.disk_of_mount(runner, store) and dk.usb_speed(dk.disk_of_mount(runner, store)) is not None)
+    comp = fc.compress_cmd(compression, fc.choose_level(level, dk.fstype_of_mount(runner, store), on_usb))
+    needed = {rec["tool"], fc.WIMLIB, "losetup"}
+    for cmd in (fc.decompress_cmd(compression), comp):
+        if cmd:
+            needed.add(cmd[0])
+    missing = sorted(t for t in needed if not runner.which(t))
+    if missing:
+        raise ClonixError(f"Outils introuvables : {', '.join(missing)}")
+
+    old_file = rec["file"]
+    need = rec["size"] + files.get(old_file, {}).get("size", 0) + GIB
+    free = shutil.disk_usage(path).free
+    if free < need:
+        raise ClonixError(
+            f"Pas assez de place sur le support des images : il faut {dk.human_size(need)} libres "
+            f"pendant la conversion, {dk.human_size(free)} disponibles. Supprimez une image ou "
+            "libérez de la place, puis recommencez.")
+
+    number = rec["number"]
+    new_rec = dict(rec, mode="wim", tool=fc.WIMLIB, file=f"p{number}.wim{fc.extension(compression)}",
+                   compression=compression)
+    partial = new_rec["file"] + ".partial"
+    raw = os.path.join(path, ".conversion.raw")
+    runner.plan([(f"Partition {number} : remise à plat", rec["size"]),
+                 (f"Partition {number} : copie fichier par fichier", rec["size"])])
+    runner.log(f"Conversion de « {manifest['name']} » en image adaptable aux disques plus petits")
+    dk.check_usb_link(runner, store)
+    dk.tune_readahead(runner, store)
+    started = time.monotonic()
+    loop = None
+    try:
+        if not runner.dry_run:
+            with open(raw, "wb") as f:
+                f.truncate(rec["size"])  # fichier creux : rien n'est écrit pour l'instant
+        loop = runner.run(["losetup", "--find", "--show", raw]).strip()
+        if runner.dry_run:
+            loop = "/dev/loopX"
+        if not loop.startswith("/dev/"):
+            raise ClonixError("Impossible de créer le disque virtuel temporaire (losetup)")
+
+        runner.log(f"→ partition {number} : remise à plat depuis l'image")
+        cmds = []
+        decomp = fc.decompress_cmd(compression)
+        if decomp:
+            cmds.append(decomp)
+        cmds.append(fc.write_cmd("partclone", rec["tool"], loop, fc.partclone_flags(runner.supports, rec["tool"])))
+        runner.start_step(0)
+        with source.open(old_file) as f:
+            runner.pipeline(cmds, feed=im.VerifyingReader(f, old_file, files.get(old_file)), total=rec["size"])
+
+        runner.log(f"→ partition {number} : copie fichier par fichier (WIM)")
+        runner.start_step(1)
+        _capture_wim(runner, loop, path, manifest, new_rec, comp, table.required_bytes(), disk_name=partial)
+    except BaseException:
+        if not runner.dry_run and os.path.exists(os.path.join(path, partial)):
+            os.remove(os.path.join(path, partial))
+        manifest["files"].pop(new_rec["file"], None)
+        raise
+    finally:
+        if loop and loop.startswith("/dev/") and not runner.dry_run:
+            _cleanup_run(runner, ["losetup", "--detach", loop])
+        if os.path.exists(raw):
+            os.remove(raw)
+
+    if runner.dry_run:
+        return manifest
+    os.replace(os.path.join(path, partial), os.path.join(path, new_rec["file"]))
+    manifest["partitions"] = [new_rec if r is rec else r for r in manifest["partitions"]]
+    if old_file != new_rec["file"]:
+        manifest["files"].pop(old_file, None)
+    manifest["converted"] = im.now_iso()
+    tmp_manifest = os.path.join(path, im.MANIFEST + ".tmp")
+    with open(tmp_manifest, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2, ensure_ascii=False)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_manifest, os.path.join(path, im.MANIFEST))
+    if old_file != new_rec["file"]:
+        try:
+            os.remove(os.path.join(path, old_file))
+        except OSError:
+            pass
+    runner.log(f"Image « {manifest['name']} » adaptable : disque d'au moins "
+               f"{dk.human_size(manifest['table']['min_bytes'])}")
+    _summary(runner, "Conversion", started, files.get(new_rec["file"], {}).get("size", 0), "écrits")
+    runner.note(f"L'image peut maintenant être déployée sur un disque d'au moins "
+                f"{dk.human_size(manifest['table']['min_bytes'])}.")
+    return manifest
 
 
 # ------------------------------------------------------------ disque à disque

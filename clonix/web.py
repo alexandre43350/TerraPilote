@@ -124,6 +124,7 @@ class App:
                    "source": m.get("source", {}), "required": m.get("table", {}).get("required_bytes", 0),
                    "min_required": m.get("table", {}).get("min_bytes") or m.get("table", {}).get("required_bytes", 0),
                    "resizable": any(p.get("mode") == "wim" for p in m.get("partitions", [])),
+                   "convertible": ops.convertible_partition(m) is not None,
                    "partitions": [{"number": p["number"], "fstype": p["fstype"], "size": p["size"],
                                    "mode": p["mode"]} for p in m.get("partitions", [])]}
                   for n, m, s in im.list_images(self.image_dir)]
@@ -215,6 +216,10 @@ class App:
         d = self.image_dir
         if name == "delete-image":
             return self.delete_image(body)
+        if name == "make-resizable":
+            image = _clean_name(body.get("image", ""))
+            return self.start("convert", f"Rendre « {image} » adaptable aux disques plus petits",
+                              lambda r: ops.make_resizable(r, image, d))
         if name == "capture":
             disk = self._disk(body["disk"], writable=False)
             dk.check_readable_source(disk)

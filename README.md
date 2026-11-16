@@ -41,8 +41,14 @@ Tables MBR et GPT, démarrage BIOS et UEFI.
   données + 10 % + 4 Gio : la taille minimale est affichée sur l'image.
   Le fichier d'échange, le fichier de veille prolongée et les points de
   restauration ne sont pas copiés (Windows recrée les deux premiers).
-- Une image classique (bloc par bloc) ne peut pas aller sur un disque plus petit :
-  Windows répartit ses données sur toute la partition.
+- Une image classique (bloc par bloc) ne peut pas aller telle quelle sur un disque
+  plus petit : Windows répartit ses données sur toute la partition. Elle peut être
+  **convertie** sans le PC d'origine : lien « Rendre adaptable aux disques plus
+  petits » sous l'image dans le tableau de bord (`clonix make-resizable NOM`).
+  Clonix remet la partition Windows dans un fichier temporaire du support des
+  images (il faut autant de place libre que la taille de cette partition), la
+  recopie fichier par fichier, puis remplace l'ancienne version dans l'image. En
+  cas d'échec ou d'annulation, l'image reste inchangée.
 - L'image adaptable demande un disque en GPT (démarrage UEFI, cas de tous les PC
   récents). La capture est un peu plus lente qu'en mode bloc.
 

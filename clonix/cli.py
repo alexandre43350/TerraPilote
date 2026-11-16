@@ -61,6 +61,11 @@ def cmd_capture(runner, args):
     return 0
 
 
+def cmd_make_resizable(runner, args):
+    ops.make_resizable(runner, args.name, args.dir)
+    return 0
+
+
 def cmd_deploy(runner, args):
     source = ops.open_image(args.name, args.dir)
     ops.deploy(
@@ -237,6 +242,10 @@ def build_parser():
     sp_deploy = add("deploy", cmd_deploy, "restaurer une image sur un disque")
     sp_deploy.add_argument("name", help="nom ou chemin de l'image")
     sp_deploy.add_argument("disk", help="disque cible, ex. /dev/sda")
+
+    sp_conv = add("make-resizable", cmd_make_resizable,
+                  "rendre une image existante adaptable aux disques plus petits (sans le PC d'origine)")
+    sp_conv.add_argument("name", help="nom de l'image")
 
     sp2 = add("clone", cmd_clone, "copier un disque directement sur un autre")
     sp2.add_argument("source")

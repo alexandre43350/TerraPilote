@@ -153,6 +153,8 @@ class DemoApp(App):
             return self._fake_winfix(body)
         if name == "bench":
             return self._fake_bench(body)
+        if name == "make-resizable":
+            return self._fake_convert(body)
         if name in ("deploy", "mcast-recv"):
             body = dict(body, adapt=False)  # pas de vrai Windows dans la démo
         if name == "password":
@@ -190,6 +192,18 @@ class DemoApp(App):
                          "support des images."):
                 r.note(line)
         return self.start("bench", f"Test des vitesses ({disk.path})", work)
+
+    def _fake_convert(self, body):
+        image = body.get("image", "")
+
+        def work(r):
+            r.plan([("Partition 3 : remise à plat", 254 * GIB), ("Partition 3 : copie fichier par fichier", 254 * GIB)])
+            for i in range(2):
+                r.start_step(i)
+                r.pipeline([["zstd"], ["partclone.ntfs"]] if i == 0 else [["wimlib-imagex"], ["zstd"]])
+            r.note("L'image peut maintenant être déployée sur un disque d'au moins 58,5 Go. (démonstration : "
+                   "l'image n'est pas réellement convertie)")
+        return self.start("convert", f"Rendre « {image} » adaptable aux disques plus petits", work)
 
     def _fake_winfix(self, body):
         disk = self._disk(body["disk"], writable=True)

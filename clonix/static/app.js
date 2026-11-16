@@ -209,7 +209,7 @@ function imageListOrEmpty() {
       h("button", { class: "btn primary", onclick: () => storageDialog() }, "Configurer le dépôt"))];
   }
   if (!S.images.length) return [h("div", { class: "empty" }, "Le dépôt ne contient encore aucune image.")];
-  return S.images.map((i) => imageCard(i, { onDelete: () => confirmDeleteImage(i) }));
+  return S.images.map((i) => imageCard(i, { onDelete: () => confirmDeleteImage(i), onConvert: () => confirmConvert(i) }));
 }
 
 function partBar(parts, total) {
@@ -264,7 +264,22 @@ function imageCard(i, opts = {}) {
         onclick: (e) => { e.stopPropagation(); opts.onDelete(); } }, icon("trash")) : null),
     partBar(i.partitions, i.source.size || 1),
     h("div", { class: "legend" }, `Disque source ${size(i.source.size)}${i.source.model ? " · " + i.source.model : ""} · ${i.partitions.length} partition(s)`,
-      i.resizable ? h("span", { class: "badge ok" }, `adaptable · disque ≥ ${size(i.min_required)}`) : null));
+      i.resizable ? h("span", { class: "badge ok" }, `adaptable · disque ≥ ${size(i.min_required)}`) : null),
+    opts.onConvert && i.convertible ? h("button", { class: "link-btn", onclick: (e) => { e.stopPropagation(); opts.onConvert(); } },
+      "Rendre adaptable aux disques plus petits") : null);
+}
+
+function confirmConvert(img) {
+  if (S.job && S.job.state === "running") return toast("Une opération est en cours : attendez qu'elle se termine", true);
+  const win = img.partitions.filter((p) => p.fstype === "ntfs" && p.mode === "partclone").sort((a, b) => b.size - a.size)[0];
+  openModal(wizHead("Rendre l'image adaptable", "Pour déployer cette image sur un disque plus petit, sans recapturer le PC d'origine."),
+    imageCard(img),
+    h("div", { class: "note-box" },
+      h("p", {}, `Clonix remet la partition Windows de l'image dans un fichier temporaire sur le support des images, puis la recopie fichier par fichier. Aucun PC n'est modifié.`),
+      h("p", {}, `Place libre nécessaire pendant l'opération : environ ${size((win ? win.size : 0) + img.size)}. Comptez à peu près le temps d'une capture et d'un déploiement.`),
+      h("p", {}, "L'image reste utilisable sur les disques de même taille ou plus grands. En cas d'annulation, elle reste telle qu'avant.")),
+    h("div", { class: "wiz-foot" }, h("button", { class: "btn", onclick: closeModal }, "Annuler"),
+      h("button", { class: "btn primary", onclick: () => launch("make-resizable", { image: img.name }) }, "Lancer la conversion")));
 }
 
 function confirmDeleteImage(img) {
@@ -417,7 +432,9 @@ function wizardDeploy(step = 0, sel = {}) {
       ? `« ${img.name} » s'adapte à la taille du disque : il faut au moins ${size(need)}. Choisissez le disque cible.`
       : `« ${img.name} » nécessite ${size(need)} (un disque plus grand convient aussi). Choisissez le disque cible.`, 1, 3),
       pickDisks(S.disks, sel.disk, (d) => wizardDeploy(1, { ...sel, disk: d.path }), (d) => targetProblem(d, need)),
-      img.resizable ? null : h("p", { class: "note" }, "Pour un disque plus petit, recapturez le PC d'origine en cochant « Image adaptable aux disques plus petits »."),
+      img.resizable ? null : img.convertible
+        ? h("p", { class: "note" }, "Disque plus petit ? ", h("button", { class: "link-btn", onclick: () => confirmConvert(img) }, "Rendre cette image adaptable"), " (sans recapturer le PC d'origine).")
+        : h("p", { class: "note" }, "Pour un disque plus petit, recapturez le PC d'origine en cochant « Image adaptable aux disques plus petits »."),
       wizFoot({ fn: () => wizardDeploy(0, sel) }, { label: "Continuer", disabled: !sel.disk, fn: () => wizardDeploy(2, sel) }));
   }
   const d = S.disks.find((x) => x.path === sel.disk);
@@ -660,7 +677,7 @@ async function mount(body) {
 
 /* ------------------------------------------------------------------ tâche */
 const CIRC = 2 * Math.PI * 52;
-const KINDS = { capture: "Capture", deploy: "Déploiement", clone: "Clonage", "mcast-send": "Diffusion multicast", "mcast-recv": "Réception multicast", verify: "Vérification", password: "Mot de passe", winfix: "Réparation Windows", bench: "Test des vitesses" };
+const KINDS = { capture: "Capture", deploy: "Déploiement", clone: "Clonage", "mcast-send": "Diffusion multicast", "mcast-recv": "Réception multicast", verify: "Vérification", convert: "Conversion", password: "Mot de passe", winfix: "Réparation Windows", bench: "Test des vitesses" };
 let shownJob = null, shownLogs = -1, history = [];
 
 function renderSpark(job) {
