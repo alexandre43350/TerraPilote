@@ -90,5 +90,26 @@ class FlowTest(unittest.TestCase):
         self.assertIn("limit", r.slowest)
 
 
+
+class PipelineExitTest(unittest.TestCase):
+    def test_codes(self):
+        from clonix.runner import pipeline_failure
+        self.assertIsNone(pipeline_failure([0, 0]))
+        self.assertIsNone(pipeline_failure([-13, 0]))  # zstd coupé, wimlib a réussi
+        self.assertEqual(pipeline_failure([-13, 2]), 1)  # l'erreur est chez wimlib
+        self.assertEqual(pipeline_failure([1, 0]), 0)
+        self.assertEqual(pipeline_failure([0, -13]), 1)
+
+    def test_reader_stopping_early_is_not_an_error(self):
+        from clonix.errors import CommandError
+        r = Runner(out=io.StringIO())
+        r.pipeline([["sh", "-c", "yes"], ["head", "-c", "10"]])
+        with self.assertRaises(CommandError) as ctx:
+            r.pipeline([["sh", "-c", "yes"], ["sh", "-c", "head -c 10 >/dev/null; exit 3"]])
+        self.assertEqual(ctx.exception.returncode, 3)
+        self.assertEqual(ctx.exception.argv[0], "sh")
+        self.assertIn("exit 3", " ".join(ctx.exception.argv))
+
+
 if __name__ == "__main__":
     unittest.main()

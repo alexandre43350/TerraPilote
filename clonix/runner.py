@@ -96,6 +96,26 @@ def parse_dd(line):
     return int(m.group(1)) if m else None
 
 
+SIGPIPE_CODES = (-13, 141)  # tué par SIGPIPE (code Python, code shell)
+
+
+def pipeline_failure(codes):
+    """Indice de la commande en échec dans « cmd1 | cmd2 | … », ou None.
+
+    Une commande tuée par SIGPIPE n'a pas échoué d'elle-même : la suivante a
+    cessé de lire. C'est normal quand la suivante a fini son travail (wimlib,
+    par exemple, s'arrête dès qu'il a extrait tous les fichiers, sans lire la
+    table des matières en fin d'image) ; sinon, c'est l'erreur de la suivante
+    qu'il faut montrer.
+    """
+    real = [i for i, rc in enumerate(codes) if rc not in (0,) + SIGPIPE_CODES]
+    if real:
+        return real[0]
+    if codes and codes[-1] != 0:
+        return len(codes) - 1  # la dernière commande n'a personne après elle
+    return None
+
+
 class Reporter:
     """Reçoit les messages et la progression (console par défaut)."""
 
@@ -510,9 +530,9 @@ class Runner:
             self._end_flow()
 
         self.check_cancel()
-        for i, (argv, p) in enumerate(zip(cmds, procs)):
-            if p.returncode != 0:
-                raise CommandError(argv, p.returncode, "\n".join(tails.get(i, [])[-6:]))
+        failed = pipeline_failure([p.returncode for p in procs])
+        if failed is not None:
+            raise CommandError(cmds[failed], procs[failed].returncode, "\n".join(tails.get(failed, [])[-6:]))
         return written[0]
 
     def _watch(self, stream, kind, total, tail):
