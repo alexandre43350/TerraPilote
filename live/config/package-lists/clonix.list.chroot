@@ -50,6 +50,7 @@ xwayland
 libgl1-mesa-dri
 libegl1
 libgles2
+fonts-ibm-plex
 fonts-inter
 fonts-dejavu-core
 
