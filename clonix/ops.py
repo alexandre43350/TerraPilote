@@ -300,9 +300,12 @@ def _write_small(runner, folder, manifest, name, data):
     if runner.dry_run:
         runner.log(f"[dry-run] écrire {name} ({len(data)} octets)")
         return
-    with open(os.path.join(folder, name), "wb") as f:
-        w = im.HashingWriter(f)
-        w.write(data)
+    try:
+        with open(os.path.join(folder, name), "wb") as f:
+            w = im.HashingWriter(f)
+            w.write(data)
+    except OSError as exc:
+        raise dk.store_io_error(runner, exc, writing=True) from exc
     manifest["files"][name] = w.record()
 
 
@@ -311,11 +314,16 @@ def _write_stream(runner, folder, manifest, name, cmds, total, disk_name=None):
     if runner.dry_run:
         runner.pipeline(cmds, sink=io.BytesIO(), total=total)
         return
-    with open(os.path.join(folder, disk_name or name), "wb") as f:
-        w = im.HashingWriter(f)
-        runner.pipeline(cmds, sink=w, total=total)
-        f.flush()
-        os.fsync(f.fileno())
+    try:
+        with open(os.path.join(folder, disk_name or name), "wb") as f:
+            w = im.HashingWriter(f)
+            runner.pipeline(cmds, sink=w, total=total)
+            f.flush()
+            os.fsync(f.fileno())
+    except (BrokenPipeError, InterruptedError):
+        raise
+    except OSError as exc:
+        raise dk.store_io_error(runner, exc, writing=True) from exc
     manifest["files"][name] = w.record()
 
 
@@ -448,9 +456,14 @@ def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=N
         runner.start_step(step)
         step += 1
         part_started = time.monotonic()
-        with source.open(rec["file"]) as f:
-            runner.pipeline(cmds, feed=im.VerifyingReader(f, rec["file"], files.get(rec["file"])),
-                            total=rec["size"])
+        try:
+            with source.open(rec["file"]) as f:
+                runner.pipeline(cmds, feed=im.VerifyingReader(f, rec["file"], files.get(rec["file"])),
+                                total=rec["size"])
+        except (BrokenPipeError, InterruptedError):
+            raise
+        except OSError as exc:
+            raise dk.store_io_error(runner, exc, writing=False) from exc
         _summary(runner, f"  partition {rec['number']}", part_started,
                  files.get(rec["file"], {}).get("size", 0), "lus", visible=False)
         if mode == "partclone" and resized.get(rec["number"], 0) > rec["size"]:

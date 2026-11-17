@@ -170,6 +170,11 @@ class App:
                 job.state = "error"
                 job.error = str(exc)
                 job.log(f"Erreur : {exc}")
+            except OSError as exc:
+                job.state = "error"
+                job.error = (f"Erreur d'entrée/sortie : {exc.strerror or exc}. Un disque ou le support "
+                             "des images a peut-être été débranché.")
+                job.log(traceback.format_exc())
             except Exception as exc:  # pragma: no cover - filet de sécurité
                 job.state = "error"
                 job.error = f"Erreur interne : {exc}"

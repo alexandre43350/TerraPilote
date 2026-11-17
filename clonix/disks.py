@@ -249,6 +249,59 @@ def tune_readahead(runner, directory, kb=READAHEAD_KB):
     return devices
 
 
+_KERNEL_STORAGE = re.compile(
+    r"usb|uas|reset|disconnect|I/O error|exfat|blk_update_request|Buffer I/O|critical medium|"
+    r"sense key|offline|Medium Error|nvme", re.I)
+
+
+def kernel_storage_messages(runner, limit=8):
+    """Derniers messages du noyau sur les disques et l'USB (déconnexion, réinitialisation…)."""
+    try:
+        out = runner.run(["dmesg"], readonly=True, check=False) or ""
+    except Exception:  # dmesg absent ou interdit : diagnostic seulement
+        return []
+    lines = [line.strip() for line in out.splitlines()[-500:] if _KERNEL_STORAGE.search(line)]
+    return lines[-limit:]
+
+
+def store_io_error(runner, exc, writing=True):
+    """Transforme une erreur système sur le support des images en message clair.
+
+    Ajoute au journal ce que le noyau a vu (déconnexion USB, réinitialisation,
+    erreur exFAT), qui dit presque toujours la cause.
+    """
+    import errno as _errno
+    code = getattr(exc, "errno", None)
+    action = "l'écriture sur" if writing else "la lecture depuis"
+    if code == _errno.ENOSPC:
+        return ClonixError("Le support des images est plein. Supprimez une image (bouton corbeille) "
+                           "ou utilisez un support plus grand, puis recommencez.")
+    if code == _errno.EROFS:
+        return ClonixError("Le support des images est passé en lecture seule, souvent à cause d'une "
+                           "erreur sur la clé ou le SSD. Vérifiez-le depuis Windows, puis recommencez.")
+    lines = kernel_storage_messages(runner)
+    if lines:
+        runner.log("Messages du noyau sur les disques et l'USB :")
+        for line in lines:
+            runner.log(f"  {line}")
+    text = " ".join(lines).lower()
+    if "disconnect" in text:
+        cause = "Le support des images (SSD ou clé USB) s'est déconnecté pendant la copie."
+    elif "reset" in text:
+        cause = "La liaison USB avec le support des images a été réinitialisée pendant la copie."
+    elif "exfat" in text:
+        cause = "Le système de fichiers du support des images (exFAT) signale une erreur."
+    else:
+        cause = f"Erreur matérielle pendant {action} le support des images ({exc.strerror or exc})."
+    advice = ("Branchez le SSD directement sur un port USB 3 du PC (sans rallonge ni hub), si possible "
+              "un autre port, puis recommencez. Si l'erreur revient, vérifiez le support depuis Windows "
+              "(clic droit sur le lecteur › Propriétés › Outils › Vérifier).")
+    if code == _errno.EIO and "exfat" in text and "disconnect" not in text and "reset" not in text:
+        advice = ("Vérifiez le support depuis Windows (clic droit sur le lecteur › Propriétés › Outils › "
+                  "Vérifier), puis recommencez.")
+    return ClonixError(f"{cause} {advice}")
+
+
 def tune_disk_readahead(runner, disk, kb=READAHEAD_KB):
     """Lecture anticipée agrandie sur le disque du PC (source d'une capture).
 
