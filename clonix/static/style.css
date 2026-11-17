@@ -118,8 +118,8 @@ main { padding: 32px 40px 48px; max-width: 1480px; width: 100%; }
 .pill.warn { color: var(--accent-ink); border-color: var(--accent); background: var(--accent); font-weight: 600; }
 
 /* indicateurs : afficheurs */
-.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin-bottom: 22px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
-.stat { position: relative; overflow: hidden; padding: 14px 18px; background: var(--panel); }
+.stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-bottom: 22px; }
+.stat { position: relative; overflow: hidden; padding: 14px 18px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
 .stat small { display: block; color: var(--faint); font-size: 10.5px; }
 .stat strong { display: block; font-family: var(--mono); font-size: 26px; font-weight: 500; letter-spacing: -.02em; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .stat span { font-size: 12px; color: var(--muted); }
@@ -391,3 +391,30 @@ main { padding: 32px 40px 48px; max-width: 1480px; width: 100%; }
   .arrow > .flow { transform: rotate(90deg); margin: 0 auto; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* ------------------------------------------------ liaison USB du support */
+.stat.good { box-shadow: inset 0 -3px 0 var(--ok); }
+.stat.good strong { color: var(--ok); }
+.stat.bad { background: rgba(255,90,77,.1); box-shadow: inset 0 -3px 0 var(--danger); }
+.stat.bad strong { color: var(--danger); }
+.stat.bad span { color: #ffd2cd; white-space: normal; display: block; }
+.link-badge {
+  display: inline-block; padding: 4px 9px; border-radius: 2px; font-family: var(--mono); font-size: 13px; font-weight: 600;
+  letter-spacing: .04em; white-space: nowrap;
+}
+.link-badge.good { background: var(--ok); color: #06200f; }
+.link-badge.bad { background: var(--danger); color: #1c0402; animation: blink 1.2s steps(1) infinite; }
+.side-link { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; color: var(--muted); }
+.job-link {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 14px; padding: 9px 12px;
+  border-radius: var(--radius); border: 1px solid; border-left-width: 4px; font-size: 13.5px;
+}
+.job-link i { width: 16px; height: 16px; }
+.job-link strong { font-family: var(--mono); font-weight: 600; }
+.job-link.good { border-color: rgba(114,213,140,.35); border-left-color: var(--ok); color: var(--muted); }
+.job-link.good strong, .job-link.good i { color: var(--ok); }
+.job-link.bad { border-color: rgba(255,90,77,.5); border-left-color: var(--danger); background: rgba(255,90,77,.1); color: #ffd2cd; }
+.job-link.bad strong, .job-link.bad i { color: var(--danger); }
+.job-link-tip { flex-basis: 100%; font-size: 13px; }
+@media (max-width: 1380px) { .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 1180px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

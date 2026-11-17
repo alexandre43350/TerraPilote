@@ -137,5 +137,25 @@ class UsbWatchTest(unittest.TestCase):
         r.emit(0.6)  # une surveillance qui plante ne casse rien
 
 
+
+class LinkLabelTest(unittest.TestCase):
+    def test_labels(self):
+        self.assertEqual(dk.usb_label(480), ("USB 2", "480 Mbit/s, lent"))
+        self.assertEqual(dk.usb_label(5000), ("USB 3", "5 Gbit/s"))
+        self.assertEqual(dk.usb_label(10000), ("USB 3.2", "10 Gbit/s"))
+        self.assertEqual(dk.usb_label(12)[0], "USB 1")
+
+    def test_store_link(self):
+        r = FakeRunner()
+        self.assertEqual(dk.store_link(r, "/srv", "cifs")["kind"], "network")
+        with mock.patch.object(dk, "disk_of_mount", return_value="/dev/sdb"), \
+                mock.patch.object(dk, "usb_speed", return_value=480):
+            link = dk.store_link(r, "/srv", "exfat")
+        self.assertEqual((link["label"], link["slow"]), ("USB 2", True))
+        with mock.patch.object(dk, "disk_of_mount", return_value="/dev/nvme0n1"), \
+                mock.patch.object(dk, "usb_speed", return_value=None):
+            self.assertEqual(dk.store_link(r, "/srv", "ext4")["kind"], "internal")
+
+
 if __name__ == "__main__":
     unittest.main()

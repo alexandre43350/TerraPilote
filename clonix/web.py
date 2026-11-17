@@ -129,16 +129,18 @@ class App:
                                    "mode": p["mode"]} for p in m.get("partitions", [])]}
                   for n, m, s in im.list_images(self.image_dir)]
         mounted = os.path.ismount(self.image_dir)
+        fstype = dk.fstype_of_mount(r, self.image_dir) if mounted else ""
         return {
             "version": __version__,
             "dry_run": self.dry_run,
             "storage": {
                 "dir": self.image_dir, "mounted": mounted,
-                "fstype": dk.fstype_of_mount(r, self.image_dir) if mounted else "",
+                "fstype": fstype,
                 "source": _mount_source(r, self.image_dir) if mounted else "",
                 "free": _free_space(self.image_dir),
                 "clonix_key": bool(storage.find_data_partition(r)),
                 "usb_speed": _store_usb_speed(r, self.image_dir) if mounted else None,
+                "link": dk.store_link(r, self.image_dir, fstype) if mounted else None,
             },
             "disks": disks,
             "images": images,

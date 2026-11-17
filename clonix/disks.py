@@ -208,6 +208,32 @@ def usb_speed(disk_path, sysfs="/sys/block"):
     return None
 
 
+def usb_label(speed):
+    """(nom court, détail) d'une liaison USB d'après sa vitesse en Mbit/s."""
+    if speed <= 12:
+        return "USB 1", f"{speed} Mbit/s, très lent"
+    if speed <= 480:
+        return "USB 2", "480 Mbit/s, lent"
+    if speed <= 5000:
+        return "USB 3", "5 Gbit/s"
+    if speed <= 10000:
+        return "USB 3.2", "10 Gbit/s"
+    return "USB 3.2", f"{speed // 1000} Gbit/s"
+
+
+def store_link(runner, path, fstype=""):
+    """Type de liaison du support des images, pour l'affichage."""
+    from clonix.fsclone import NETWORK_FS
+    if fstype in NETWORK_FS:
+        return {"kind": "network", "label": "Réseau", "detail": fstype.upper(), "slow": False}
+    disk = disk_of_mount(runner, path)
+    speed = usb_speed(disk) if disk else None
+    if speed:
+        label, detail = usb_label(speed)
+        return {"kind": "usb", "label": label, "detail": detail, "speed": speed, "slow": speed <= 480}
+    return {"kind": "internal", "label": "Interne", "detail": "disque du PC", "slow": False}
+
+
 def check_usb_link(runner, image_dir, sysfs="/sys/block"):
     """Prévient si le dépôt d'images est sur un support branché en USB 2."""
     if not image_dir or not os.path.isdir(image_dir):

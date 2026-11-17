@@ -157,8 +157,22 @@ function renderActions() {
   }
 }
 
-function stat(label, value, sub, ic) {
-  return h("div", { class: "stat" }, icon(ic), h("small", {}, label), h("strong", {}, value), h("span", {}, sub));
+function stat(label, value, sub, ic, cls) {
+  return h("div", { class: "stat" + (cls ? " " + cls : "") }, icon(ic), h("small", {}, label), h("strong", {}, value), h("span", {}, sub));
+}
+
+/* Liaison du support des images : USB 2 (lent) en rouge, USB 3 en vert. */
+const LINK_ADVICE = "Lent : éteignez, rebranchez le support à fond sur un port USB 3 (bleu ou marqué SS), redémarrez.";
+function linkStat(st) {
+  const l = st.mounted && st.link;
+  if (!l) return stat("Liaison du support", "—", "dépôt non monté", "usb");
+  if (l.kind !== "usb") return stat("Liaison du support", l.label, l.detail, l.kind === "network" ? "net" : "disk");
+  return stat("Liaison du support", l.label, l.slow ? LINK_ADVICE : `${l.detail} ✓`, "usb", l.slow ? "bad" : "good");
+}
+function linkBadge(l, prefix = "") {
+  if (!l || l.kind !== "usb") return null;
+  return h("span", { class: "link-badge " + (l.slow ? "bad" : "good") },
+    `${prefix}${l.label}${l.slow ? " · LENT" : " ✓"}`);
 }
 
 function render() {
@@ -179,6 +193,7 @@ function render() {
     stat("Disques détectés", S.disks.length, `${size(capacity)} au total`, "disk"),
     stat("Images", st.mounted ? S.images.length : "—", st.mounted ? `${size(imgTotal)} stockés` : "dépôt non monté", "stack"),
     stat("Espace libre du dépôt", st.mounted ? size(st.free) : "—", st.mounted ? st.fstype.toUpperCase() || "local" : "à configurer", "cloud"),
+    linkStat(st),
     stat("Réseau", S.interface || "aucun", S.remote && S.remote.addresses.length ? S.remote.addresses[0] : (S.interface ? "connecté" : "câble débranché ?"), "net"),
   );
 
@@ -188,9 +203,7 @@ function render() {
     h("div", { class: "label" }, "Dépôt d'images"),
     h("div", { class: "title" }, h("span", { class: "dot" + (st.mounted ? " ok" : "") }), st.mounted ? (st.source || st.dir) : "Non monté"),
     h("div", { class: "sub" }, st.mounted ? `${size(st.free)} libres · ${st.fstype || "local"}` : "Choisissez où lire et écrire les images"),
-    st.mounted && st.usb_speed ? (st.usb_speed <= 480
-      ? h("div", { class: "usb-warn" }, "⚠ Relié en USB 2 (lent). Éteignez, rebranchez le câble à fond sur un port USB 3, redémarrez.")
-      : h("div", { class: "sub" }, `Relié en USB ${st.usb_speed >= 10000 ? "3.2" : "3"} (${st.usb_speed / 1000} Gbit/s) ✓`)) : null,
+    st.mounted && st.link && st.link.kind === "usb" ? h("div", { class: "side-link" }, linkBadge(st.link), h("span", {}, st.link.detail)) : null,
     st.mounted ? h("div", { class: "meter" }, h("div", { style: `width:${Math.max(used * 100, 2)}%` })) : null,
     h("button", { class: "btn" + (st.mounted ? "" : " primary"), onclick: () => storageDialog() }, st.mounted ? "Changer de dépôt" : "Configurer le dépôt"),
   ].filter(Boolean));
@@ -724,6 +737,15 @@ function renderJob() {
   document.querySelector(".ring-text").style.visibility = done ? "hidden" : "visible";
   const states = { done: "Terminé avec succès", error: "L'opération a échoué", cancelled: "Opération annulée" };
   $("#job-step").textContent = states[job.state] || (p.label ? `${p.label} · étape ${p.step} sur ${p.steps}` : "Préparation…");
+  const usesStore = ["capture", "deploy", "convert", "verify", "bench", "mcast-send"].includes(job.kind);
+  const link = usesStore && S.storage.mounted ? S.storage.link : null;
+  const jl = $("#job-link");
+  jl.hidden = !(link && link.kind === "usb");
+  if (!jl.hidden) {
+    jl.className = "job-link " + (link.slow ? "bad" : "good");
+    jl.replaceChildren(icon("usb"), h("span", {}, "Support des images : "), h("strong", {}, `${link.label} · ${link.detail}`),
+      link.slow ? h("span", { class: "job-link-tip" }, LINK_ADVICE) : null);
+  }
   $("#job-rate").textContent = job.state === "running" ? rate(p.rate) : "—";
   $("#job-eta").textContent = job.state === "running" ? duration(p.eta) : "—";
   const showLimit = job.state === "running" && p.limit;

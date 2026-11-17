@@ -137,7 +137,9 @@ class DemoApp(App):
 
     def state(self):
         s = super().state()
-        s["storage"].update(mounted=True, fstype="cifs", source="//nas/images", free=1.7 * 1024 ** 4)
+        s["storage"].update(mounted=True, fstype="exfat", source="/dev/mapper/ventoy", free=759e9,
+                            usb_speed=5000, link={"kind": "usb", "label": "USB 3", "detail": "5 Gbit/s",
+                                                  "speed": 5000, "slow": False})
         s["demo"] = True
         return s
 
