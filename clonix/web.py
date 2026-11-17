@@ -185,7 +185,7 @@ class App:
             disks.append({
                 "path": d.path, "name": d.name, "size": d.size, "model": d.model, "serial": d.serial,
                 "transport": d.transport, "removable": d.removable, "readonly": d.readonly,
-                "mounted": bool(d.mountpoints),
+                "mounted": bool(d.mountpoints), "pttype": d.pttype,
                 "protected": reason,
                 "writable": not (d.readonly or d.mountpoints or reason),
                 "partitions": [{"path": p.path, "number": p.number, "size": p.size, "fstype": p.fstype,
@@ -323,7 +323,8 @@ class App:
                               lambda r: ops.deploy(r, ops.open_image(image, d), disk.path, d,
                                                    new_uuids=bool(body.get("new_uuids")),
                                                    adapt_windows=bool(body.get("adapt", True)),
-                                                   expand=bool(body.get("expand", True))))
+                                                   expand=bool(body.get("expand", True)),
+                                                   make_uefi=bool(body.get("uefi", False))))
         if name == "clone":
             src = self._disk(body["source"], writable=False)
             dst = self._disk(body["target"], writable=True)
@@ -363,7 +364,9 @@ class App:
             disk = self._disk(body["disk"], writable=True)
             self._confirm(disk, body)
             return self.start("winfix", f"Réparation du démarrage de Windows → {disk.path}",
-                              lambda r: (winfix.adapt(r, disk.path), ops.boot_entry(r, disk.path)))
+                              lambda r: (winfix.adapt(r, disk.path),
+                                         ops.make_uefi_bootable(r, disk.path) if body.get("uefi")
+                                         else ops.boot_entry(r, disk.path)))
         if name == "bench":
             from clonix import bench
             disk = self._disk(body["disk"], writable=False)

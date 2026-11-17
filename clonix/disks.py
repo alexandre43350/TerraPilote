@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 from clonix.errors import ClonixError
 
-LSBLK_COLUMNS = "NAME,PATH,TYPE,SIZE,FSTYPE,LABEL,UUID,MOUNTPOINT,MODEL,SERIAL,TRAN,RM,RO,LOG-SEC,PKNAME"
+LSBLK_COLUMNS = "NAME,PATH,TYPE,SIZE,FSTYPE,LABEL,UUID,MOUNTPOINT,MODEL,SERIAL,TRAN,RM,RO,LOG-SEC,PKNAME,PTTYPE"
 LIVE_MEDIUM = "/run/live/medium"
 
 
@@ -33,6 +33,7 @@ class Disk:
     sector_size: int = 512
     partitions: list = field(default_factory=list)
     mountpoints: list = field(default_factory=list)
+    pttype: str = ""  # « gpt », « dos » (MBR) ou vide
 
     @property
     def name(self):
@@ -111,6 +112,7 @@ def parse_lsblk(text, include_loop=False):
             readonly=_bool(node.get("ro")),
             sector_size=_int(node.get("log-sec"), 512),
             mountpoints=_mountpoints(node),
+            pttype=node.get("pttype") or "",
         )
         for child in node.get("children") or []:
             if child.get("type") != "part":

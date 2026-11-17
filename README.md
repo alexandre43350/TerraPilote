@@ -88,6 +88,17 @@ Clonix recrée donc cette entrée à la fin de chaque déploiement et clonage
 les entrées orphelines du même nom et ajoute si besoin le chargeur de secours
 `\EFI\Boot\bootx64.efi`. Clonix doit pour cela avoir démarré en mode UEFI.
 
+**Image MBR (BIOS Legacy) sur un PC UEFI** — option expérimentale « Rendre Windows
+démarrable en UEFI », proposée (et cochée) dans le déploiement et dans « Réparer
+Windows » quand le disque est en MBR et que le PC démarre en UEFI
+(`clonix deploy --uefi`, `clonix winfix --uefi`). Comme AOMEI, mais sans les
+outils de Windows : le disque reste en MBR, la partition « Réservé au système »
+est sauvegardée, reformatée en FAT32 (type EF), son contenu remis, puis elle
+reçoit les fichiers de démarrage UEFI que Windows contient (C:\Windows\Boot\EFI)
+et la configuration de démarrage existante adaptée (winload.exe → winload.efi…).
+Nécessite Windows 8 ou plus récent et une partition « Réservé au système »
+séparée. Le disque ne démarre plus en mode Legacy ensuite.
+
 Dépannage immédiat sur un PC déjà déployé : menu de démarrage (F9 sur HP) →
 « Démarrer depuis un fichier EFI » → `EFI\Microsoft\Boot\bootmgfw.efi`.
 

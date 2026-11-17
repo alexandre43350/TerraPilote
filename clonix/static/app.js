@@ -318,6 +318,12 @@ function bootModeProblem(img) {
   return null;
 }
 
+function uefiCheck(box) {
+  return h("label", { class: "check" }, box, h("span", {},
+    h("strong", {}, "Rendre Windows démarrable en UEFI (expérimental). "),
+    "Comme la conversion d'AOMEI : la partition « Réservé au système » devient la partition de démarrage UEFI et reçoit les fichiers de démarrage UEFI de Windows. Le disque ne démarrera plus en mode Legacy. En cas de souci, redéployez sans cette option et activez Legacy/CSM dans le BIOS."));
+}
+
 function confirmConvert(img) {
   if (S.job && S.job.state === "running") return toast("Une opération est en cours : attendez qu'elle se termine", true);
   const win = img.partitions.filter((p) => p.fstype === "ntfs" && p.mode === "partclone").sort((a, b) => b.size - a.size)[0];
@@ -494,10 +500,12 @@ function wizardDeploy(step = 0, sel = {}) {
   const expand = h("input", { type: "checkbox" });
   expand.checked = true;
   const GIB = 1024 ** 3;
-  const go = h("button", { class: "btn danger", disabled: true, onclick: () => launch("deploy", { image: img.name, disk: d.path, confirm: typed, new_uuids: uu.checked, adapt: adapt.checked, expand: expand.checked }) }, "Effacer et déployer");
+  const go = h("button", { class: "btn danger", disabled: true, onclick: () => launch("deploy", { image: img.name, disk: d.path, confirm: typed, new_uuids: uu.checked, adapt: adapt.checked, expand: expand.checked, uefi: uefiBox.checked }) }, "Effacer et déployer");
   const main = img.partitions.filter((p) => p.fstype === "ntfs" || /^ext[234]$/.test(p.fstype || ""))
     .sort((a, b) => (b.mode === "wim") - (a.mode === "wim") || b.size - a.size)[0];
   const modeWarn = bootModeProblem(img);
+  const uefiBox = h("input", { type: "checkbox" });
+  uefiBox.checked = img.label === "dos" && S.boot_mode === "uefi";
   let sizing = null;
   if (main && d.size < img.required) {
     sizing = h("p", { class: "note-box" }, `Disque plus petit que l'original : la partition ${main.number} (${size(main.size)}) sera réduite à la taille du disque, puis Windows y sera recopié fichier par fichier.`);
@@ -511,6 +519,7 @@ function wizardDeploy(step = 0, sel = {}) {
     h("div", { style: "height:18px" }),
     dangerConfirm(d, (valid, v) => { typed = v; go.disabled = !valid; }),
     modeWarn ? h("div", { class: "warn-box" }, h("p", {}, "⚠ ", modeWarn)) : null,
+    img.label === "dos" && S.boot_mode === "uefi" ? uefiCheck(uefiBox) : null,
     sizing,
     h("label", { class: "check" }, adapt, h("span", {}, "Adapter Windows à ce PC (recommandé). Évite l'écran bleu INACCESSIBLE_BOOT_DEVICE quand l'image vient d'un autre PC : Clonix active les pilotes de disque standard de Windows. Seule la copie déployée est modifiée.")),
     h("label", { class: "check" }, uu, h("span", {}, "Générer de nouveaux identifiants de disque et de partitions (déconseillé pour Windows).")),
@@ -592,7 +601,10 @@ function wizardWinfix(step = 0, sel = {}) {
   }
   const d = S.disks.find((x) => x.path === sel.disk);
   let typed = "";
-  const go = h("button", { class: "btn danger", disabled: true, onclick: () => launch("winfix", { disk: d.path, confirm: typed }) }, "Réparer le démarrage");
+  const mbrOnUefi = d.pttype === "dos" && S.boot_mode === "uefi";
+  const uefiBox = h("input", { type: "checkbox" });
+  uefiBox.checked = mbrOnUefi;
+  const go = h("button", { class: "btn danger", disabled: true, onclick: () => launch("winfix", { disk: d.path, confirm: typed, uefi: mbrOnUefi && uefiBox.checked }) }, "Réparer le démarrage");
   openModal(wizHead("Réparer Windows", "Clonix active les pilotes de disque standard de Windows (NVMe et SATA), comme l'option « Universal Restore » d'AOMEI ou Acronis.", 1, 2),
     diskCard(d), h("div", { style: "height:18px" }),
     dangerConfirm(d, (valid, v) => { typed = v; go.disabled = !valid; }, {
@@ -600,6 +612,8 @@ function wizardWinfix(step = 0, sel = {}) {
       confirmLabel: "Je confirme : réparer le Windows de ",
       text: `Seul le registre système du Windows de ${d.path} est modifié ; vos fichiers ne sont pas touchés. Si le PC utilise Intel VMD (réglage du BIOS), désactivez VMD en plus.`,
     }),
+    mbrOnUefi ? h("div", { class: "warn-box" }, h("p", {}, "⚠ Disque au format MBR (démarrage BIOS Legacy) sur un PC qui démarre en UEFI : c'est sans doute pour ça qu'il affiche « aucun périphérique d'amorçage ».")) : null,
+    mbrOnUefi ? uefiCheck(uefiBox) : null,
     h("div", { class: "wiz-foot" }, h("button", { class: "btn", onclick: () => wizardWinfix(0, sel) }, "Retour"), go));
 }
 

@@ -70,7 +70,7 @@ def cmd_deploy(runner, args):
     source = ops.open_image(args.name, args.dir)
     ops.deploy(
         runner, source, args.disk, args.dir, new_uuids=args.new_uuids, adapt_windows=args.adapt,
-        expand=args.expand,
+        expand=args.expand, make_uefi=args.uefi,
         confirm=lambda m, d: ask_erase(d, f"déploiement de l'image « {m['name']} »", args.yes or runner.dry_run),
     )
     return 0
@@ -133,7 +133,10 @@ def cmd_winfix(runner, args):
         if sys.stdin.readline().strip() != disk.name:
             raise Cancelled("Opération annulée")
     winfix.adapt(runner, disk.path)
-    ops.boot_entry(runner, disk.path)
+    if args.uefi:
+        ops.make_uefi_bootable(runner, disk.path)
+    else:
+        ops.boot_entry(runner, disk.path)
     return 0
 
 
@@ -243,6 +246,8 @@ def build_parser():
     sp_deploy = add("deploy", cmd_deploy, "restaurer une image sur un disque")
     sp_deploy.add_argument("name", help="nom ou chemin de l'image")
     sp_deploy.add_argument("disk", help="disque cible, ex. /dev/sda")
+    sp_deploy.add_argument("--uefi", action="store_true",
+                           help="expérimental : image MBR (BIOS) rendue démarrable en UEFI après le déploiement")
 
     sp_conv = add("make-resizable", cmd_make_resizable,
                   "rendre une image existante adaptable aux disques plus petits (sans le PC d'origine)")
@@ -285,6 +290,8 @@ def build_parser():
     sp9 = add("winfix", cmd_winfix,
               "réparer un Windows déployé qui plante (INACCESSIBLE_BOOT_DEVICE) : pilotes de disque")
     sp9.add_argument("disk")
+    sp9.add_argument("--uefi", action="store_true",
+                     help="expérimental : rendre démarrable en UEFI un Windows installé en BIOS (disque MBR)")
     sp9.add_argument("--yes", action="store_true", help="ne pas demander de confirmation")
 
     sp6 = add("mount", cmd_mount, "monter le dépôt d'images")

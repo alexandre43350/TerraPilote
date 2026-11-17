@@ -291,6 +291,29 @@ def _watch_usb(runner):
     return usb
 
 
+def make_uefi_bootable(runner, disk_path):
+    """Windows installé en BIOS (MBR) rendu démarrable en UEFI ; jamais bloquant."""
+    from clonix import uefimbr
+    try:
+        uefimbr.make_uefi_bootable(runner, disk_path)
+    except Exception as exc:
+        runner.warn(f"Conversion pour le démarrage UEFI impossible : {exc}. Activez le mode Legacy/CSM "
+                    "dans le BIOS de ce PC pour démarrer Windows.")
+    boot_entry_diagnose_only(runner, disk_path)
+
+
+def boot_entry_diagnose_only(runner, disk_path):
+    from clonix import efiboot
+    if runner.dry_run:
+        return
+    try:
+        lines = efiboot.diagnose(runner, disk_path)
+    except Exception as exc:
+        lines = [f"Diagnostic du démarrage impossible : {exc}"]
+    if lines:
+        runner.note("Démarrage du disque :\n" + "\n".join(lines))
+
+
 def boot_entry(runner, disk_path):
     """Recrée l'entrée de démarrage UEFI du disque écrit (jamais bloquant)."""
     from clonix import efiboot
@@ -409,7 +432,7 @@ def grow_filesystem(runner, fstype, device):
 
 
 def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=None, adapt_windows=False,
-           expand=True):
+           expand=True, make_uefi=False):
     """Restaure une image (``DirSource`` ou ``TarStreamSource``) sur ``disk_path``.
 
     ``confirm(manifest, disk)`` est appelé après lecture du manifeste et avant
@@ -517,7 +540,10 @@ def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=N
         except ClonixError as exc:
             runner.warn(f"Adaptation de Windows impossible : {exc}. Windows risque de ne pas "
                         "démarrer (écran bleu INACCESSIBLE_BOOT_DEVICE).")
-    boot_entry(runner, disk.path)
+    if make_uefi and table.label == "dos":
+        make_uefi_bootable(runner, disk.path)
+    else:
+        boot_entry(runner, disk.path)
     usb.check()
     runner.clear_watches()
     runner.log(f"Déploiement terminé sur {disk.path}")
