@@ -361,7 +361,7 @@ class App:
             disk = self._disk(body["disk"], writable=True)
             self._confirm(disk, body)
             return self.start("winfix", f"Réparation du démarrage de Windows → {disk.path}",
-                              lambda r: winfix.adapt(r, disk.path))
+                              lambda r: (winfix.adapt(r, disk.path), ops.boot_entry(r, disk.path)))
         if name == "bench":
             from clonix import bench
             disk = self._disk(body["disk"], writable=False)

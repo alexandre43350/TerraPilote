@@ -75,6 +75,22 @@ fonctionner depuis le support : l'encadré du dépôt l'indique (« Ne débranch
 pas »). La clé de démarrage (Ventoy ou image Clonix copiée) est reconnue à son
 contenu et ne peut jamais être choisie comme disque cible.
 
+## « Périphérique d'amorçage introuvable » après un déploiement
+
+Un PC UEFI démarre grâce à une entrée enregistrée dans sa mémoire interne
+(« Windows Boot Manager ») qui désigne une partition précise. Après un
+déploiement ou un clonage, cette entrée peut désigner une partition disparue :
+le PC affiche « Périphérique d'amorçage introuvable » (HP : erreur 3F0) alors
+que Windows est intact.
+
+Clonix recrée donc cette entrée à la fin de chaque déploiement et clonage
+(efibootmgr, comme Clonezilla), ainsi que dans « Réparer Windows » ; il supprime
+les entrées orphelines du même nom et ajoute si besoin le chargeur de secours
+`\EFI\Boot\bootx64.efi`. Clonix doit pour cela avoir démarré en mode UEFI.
+
+Dépannage immédiat sur un PC déjà déployé : menu de démarrage (F9 sur HP) →
+« Démarrer depuis un fichier EFI » → `EFI\Microsoft\Boot\bootmgfw.efi`.
+
 ## Vitesse
 
 - **Copie des seuls blocs utilisés** (partclone) : un disque de 500 Go rempli à

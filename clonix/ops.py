@@ -291,6 +291,17 @@ def _watch_usb(runner):
     return usb
 
 
+def boot_entry(runner, disk_path):
+    """Recrée l'entrée de démarrage UEFI du disque écrit (jamais bloquant)."""
+    from clonix import efiboot
+    try:
+        efiboot.repair(runner, disk_path)
+    except ClonixError as exc:
+        runner.warn(f"Entrée de démarrage UEFI non créée ({exc}). Si le PC affiche « Périphérique "
+                    "d'amorçage introuvable », utilisez « Réparer Windows » depuis Clonix, ou démarrez "
+                    "une fois depuis le fichier \\EFI\\Microsoft\\Boot\\bootmgfw.efi (menu F9 sur HP).")
+
+
 def _summary(runner, what, started, nbytes, verb, visible=True):
     """Bilan de fin : durée, volume de l'image et débit moyen."""
     if runner.dry_run:
@@ -495,6 +506,7 @@ def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=N
         except ClonixError as exc:
             runner.warn(f"Adaptation de Windows impossible : {exc}. Windows risque de ne pas "
                         "démarrer (écran bleu INACCESSIBLE_BOOT_DEVICE).")
+    boot_entry(runner, disk.path)
     usb.check()
     runner.clear_watches()
     runner.log(f"Déploiement terminé sur {disk.path}")
@@ -693,4 +705,5 @@ def clone(runner, src_path, dst_path, new_uuids=False, confirm=None):
             runner.pipeline(fc.copy_cmds(mode, tool, part.path, target, flags),
                             total=entry.size * table.sector_size)
     runner.run(["sync"], check=False)
+    boot_entry(runner, dst.path)
     runner.log(f"Clonage terminé : {dst.path}")

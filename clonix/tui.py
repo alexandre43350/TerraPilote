@@ -188,6 +188,7 @@ def do_winfix(runner, image_dir):
         raise Back()
     os.system("clear")
     winfix.adapt(runner, disk.path)
+    ops.boot_entry(runner, disk.path)
     pause()
 
 

@@ -7,6 +7,7 @@ fdisk
 gdisk
 parted
 dosfstools
+efibootmgr
 ntfs-3g
 wimtools
 chntpw

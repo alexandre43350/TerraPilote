@@ -133,6 +133,7 @@ def cmd_winfix(runner, args):
         if sys.stdin.readline().strip() != disk.name:
             raise Cancelled("Opération annulée")
     winfix.adapt(runner, disk.path)
+    ops.boot_entry(runner, disk.path)
     return 0
 
 
