@@ -450,6 +450,10 @@ def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=N
         confirm(manifest, disk)
 
     runner.log(f"Déploiement de « {manifest['name']} » sur {disk.describe()}")
+    from clonix import efiboot
+    mismatch = efiboot.mode_mismatch(table.label, efiboot.boot_mode())
+    if mismatch and not runner.dry_run:
+        runner.warn(mismatch)
     usb = _watch_usb(runner)
     dk.check_usb_link(runner, image_dir)
     dk.tune_readahead(runner, image_dir)

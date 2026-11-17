@@ -18,7 +18,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from clonix import __version__
-from clonix import bootinfo
+from clonix import bootinfo, efiboot
 from clonix import disks as dk
 from clonix import image as im
 from clonix import multicast as mc
@@ -195,6 +195,7 @@ class App:
                    "source": m.get("source", {}), "required": m.get("table", {}).get("required_bytes", 0),
                    "min_required": m.get("table", {}).get("min_bytes") or m.get("table", {}).get("required_bytes", 0),
                    "resizable": any(p.get("mode") == "wim" for p in m.get("partitions", [])),
+                   "label": m.get("table", {}).get("label", ""),
                    "convertible": ops.convertible_partition(m) is not None,
                    "partitions": [{"number": p["number"], "fstype": p["fstype"], "size": p["size"],
                                    "mode": p["mode"]} for p in m.get("partitions", [])]}
@@ -224,6 +225,7 @@ class App:
             "job": self.job.as_dict() if self.job else None,
             "storage_event": self.storage_event,
             "boot": self.boot_info(),
+            "boot_mode": efiboot.boot_mode(),
         }
 
     # ---------------------------------------------------------------- tâches

@@ -302,9 +302,20 @@ function imageCard(i, opts = {}) {
         onclick: (e) => { e.stopPropagation(); opts.onDelete(); } }, icon("trash")) : null),
     partBar(i.partitions, i.source.size || 1),
     h("div", { class: "legend" }, `Disque source ${size(i.source.size)}${i.source.model ? " · " + i.source.model : ""} · ${i.partitions.length} partition(s)`,
-      i.resizable ? h("span", { class: "badge ok" }, `adaptable · disque ≥ ${size(i.min_required)}`) : null),
+      h("span", { class: "badges" },
+        i.label ? h("span", { class: "badge" }, i.label === "gpt" ? "UEFI · GPT" : "BIOS Legacy · MBR") : null,
+        i.resizable ? h("span", { class: "badge ok" }, `adaptable · disque ≥ ${size(i.min_required)}`) : null)),
     opts.onConvert && i.convertible ? h("button", { class: "link-btn", onclick: (e) => { e.stopPropagation(); opts.onConvert(); } },
       "Rendre adaptable aux disques plus petits") : null);
+}
+
+/* L'image démarrera-t-elle dans le mode (UEFI ou BIOS) où ce PC a démarré Clonix ? */
+function bootModeProblem(img) {
+  if (img.label === "dos" && S.boot_mode === "uefi")
+    return "Image d'un PC en mode BIOS (Legacy, disque MBR), mais ce PC démarre en UEFI. Après le déploiement, activez « Legacy » ou « CSM » dans son BIOS, sinon il affichera « aucun périphérique d'amorçage ». Sans mode Legacy : convertissez le PC d'origine (dans Windows : mbr2gpt /convert /allowFullOS, puis BIOS en UEFI) et recapturez.";
+  if (img.label === "gpt" && S.boot_mode === "bios")
+    return "Image d'un PC en mode UEFI (disque GPT), mais Clonix a démarré en mode BIOS (Legacy) sur ce PC. Réglez son BIOS en UEFI (désactivez Legacy / CSM) pour que Windows démarre.";
+  return null;
 }
 
 function confirmConvert(img) {
@@ -486,6 +497,7 @@ function wizardDeploy(step = 0, sel = {}) {
   const go = h("button", { class: "btn danger", disabled: true, onclick: () => launch("deploy", { image: img.name, disk: d.path, confirm: typed, new_uuids: uu.checked, adapt: adapt.checked, expand: expand.checked }) }, "Effacer et déployer");
   const main = img.partitions.filter((p) => p.fstype === "ntfs" || /^ext[234]$/.test(p.fstype || ""))
     .sort((a, b) => (b.mode === "wim") - (a.mode === "wim") || b.size - a.size)[0];
+  const modeWarn = bootModeProblem(img);
   let sizing = null;
   if (main && d.size < img.required) {
     sizing = h("p", { class: "note-box" }, `Disque plus petit que l'original : la partition ${main.number} (${size(main.size)}) sera réduite à la taille du disque, puis Windows y sera recopié fichier par fichier.`);
@@ -498,6 +510,7 @@ function wizardDeploy(step = 0, sel = {}) {
     h("div", { class: "arrow" }, imageCard(img), flow(), diskCard(d)),
     h("div", { style: "height:18px" }),
     dangerConfirm(d, (valid, v) => { typed = v; go.disabled = !valid; }),
+    modeWarn ? h("div", { class: "warn-box" }, h("p", {}, "⚠ ", modeWarn)) : null,
     sizing,
     h("label", { class: "check" }, adapt, h("span", {}, "Adapter Windows à ce PC (recommandé). Évite l'écran bleu INACCESSIBLE_BOOT_DEVICE quand l'image vient d'un autre PC : Clonix active les pilotes de disque standard de Windows. Seule la copie déployée est modifiée.")),
     h("label", { class: "check" }, uu, h("span", {}, "Générer de nouveaux identifiants de disque et de partitions (déconseillé pour Windows).")),

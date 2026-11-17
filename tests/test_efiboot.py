@@ -137,5 +137,37 @@ class DiagnoseTest(unittest.TestCase):
         self.assertIn("Aucune partition EFI", lines[0])
 
 
+
+class BootModeTest(unittest.TestCase):
+    def test_mismatch(self):
+        self.assertIn("Legacy", efiboot.mode_mismatch("dos", "uefi"))
+        self.assertIn("UEFI", efiboot.mode_mismatch("gpt", "bios"))
+        self.assertIsNone(efiboot.mode_mismatch("gpt", "uefi"))
+        self.assertIsNone(efiboot.mode_mismatch("dos", "bios"))
+
+    def test_boot_mode(self):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root)
+        self.assertEqual(efiboot.boot_mode(root), "uefi")
+        self.assertEqual(efiboot.boot_mode(os.path.join(root, "absent")), "bios")
+
+    def test_deploy_warns_before_writing_data(self):
+        from clonix import image as im
+        from clonix import ops
+        from tests.fakes import DOS_DUMP, GIB, lsblk_disk, lsblk_part
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        tree = [lsblk_disk("sdb", 20 * GIB, [lsblk_part("sdb1", 500 * 1024 ** 2, "ntfs")]),
+                lsblk_disk("sdc", 32 * GIB)]
+        src = FakeRunner(tree=tree, dumps={"/dev/sdb": DOS_DUMP})
+        path, _ = ops.capture(src, "/dev/sdb", "legacy", tmp)
+        r = FakeRunner(tree=tree)
+        warnings = []
+        r.warn = warnings.append
+        with mock.patch.object(efiboot, "boot_mode", return_value="uefi"):
+            ops.deploy(r, im.DirSource(path), "/dev/sdc", tmp)
+        self.assertTrue(any("mode BIOS" in w for w in warnings))
+
+
 if __name__ == "__main__":
     unittest.main()

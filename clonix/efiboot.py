@@ -33,6 +33,31 @@ _ENTRY = re.compile(r"^Boot([0-9A-Fa-f]{4})\*?\s+(.*?)\s*(?:\t|\s{2,}|HD\()(.*)$
 _PARTUUID = re.compile(r"HD\(\d+,GPT,([0-9a-fA-F-]{36})", re.I)
 
 
+MODE_MISMATCH = {
+    ("dos", "uefi"): (
+        "Cette image vient d'un PC qui démarre en mode BIOS (« Legacy », disque MBR), mais ce PC "
+        "démarre en mode UEFI. Après le déploiement, il affichera « aucun périphérique d'amorçage » "
+        "tant que vous n'aurez pas activé « Legacy » (ou « CSM ») dans son BIOS. Si ce PC n'a pas "
+        "de mode Legacy : sur le PC d'origine, dans Windows, convertissez d'abord le disque avec "
+        "« mbr2gpt /convert /allowFullOS » (invite de commandes en administrateur), passez son BIOS "
+        "en UEFI, puis recapturez l'image."),
+    ("gpt", "bios"): (
+        "Cette image vient d'un PC qui démarre en mode UEFI (disque GPT), mais Clonix a démarré en "
+        "mode BIOS (« Legacy ») sur ce PC. Pour que Windows démarre, réglez le BIOS de ce PC en "
+        "UEFI (désactivez « Legacy » / « CSM »), et redémarrez Clonix dans ce mode."),
+}
+
+
+def boot_mode(sysfs="/sys/firmware/efi"):
+    """« uefi » ou « bios » : mode dans lequel le PC a démarré Clonix."""
+    return "uefi" if os.path.isdir(sysfs) else "bios"
+
+
+def mode_mismatch(image_label, mode):
+    """Message si l'image (MBR « dos » ou GPT) ne démarrera pas dans le mode du PC, sinon None."""
+    return MODE_MISMATCH.get((image_label, mode))
+
+
 def is_uefi(sysfs="/sys/firmware/efi"):
     """Clonix a-t-il démarré en mode UEFI ? (sinon efibootmgr ne peut rien faire)"""
     return os.path.isdir(sysfs)

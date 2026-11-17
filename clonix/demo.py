@@ -142,6 +142,7 @@ class DemoApp(App):
                                                   "speed": 5000, "slow": False, "hotswap": True})
         s["boot"] = {"screen": 21.4, "in_ram": True, "ram_bytes": 912e6, "toram": 2.6,
                      "kernel": 6.1, "userspace": 9.8, "firmware": None, "loader": None, "initrd": None}
+        s["boot_mode"] = "uefi"
         s["demo"] = True
         return s
 
