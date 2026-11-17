@@ -83,6 +83,59 @@ def present_partuuids(byid="/dev/disk/by-partuuid"):
         return set()
 
 
+BCD = ("EFI", "Microsoft", "Boot", "BCD")
+
+
+def diagnose(runner, disk_path):
+    """Contrôle de ce dont un PC a besoin pour démarrer sur ``disk_path``.
+
+    Retourne des lignes en français (✓ / ✗) à afficher telles quelles.
+    """
+    lines = []
+    try:
+        table = pt.parse_dump(pt.dump_table(runner, disk_path))
+    except ClonixError as exc:
+        return [f"✗ Table de partitions illisible sur {disk_path} ({exc}) : le PC ne peut pas démarrer."]
+    if table.label == "dos":
+        lines.append(f"• {disk_path} est au format MBR : Windows y démarre en mode BIOS (Legacy/CSM). "
+                     "Si le PC est réglé en UEFI seul, il affichera « aucun périphérique d'amorçage ».")
+    esps = [e.number for e in table.entries if str(e.type).lower() in ESP_TYPES]
+    if not esps:
+        if table.label == "gpt":
+            lines.append(f"✗ Aucune partition EFI sur {disk_path} : un PC UEFI ne peut pas démarrer dessus.")
+        return lines
+    for number in esps:
+        part = dk.part_path(disk_path, number)
+        if runner.which("fsck.fat"):
+            try:
+                runner.run(["fsck.fat", "-n", part], readonly=True)
+                lines.append(f"✓ Partition EFI {part} : système de fichiers FAT valide.")
+            except ClonixError as exc:
+                lines.append(f"✗ Partition EFI {part} : système de fichiers FAT abîmé ou absent ({exc}).")
+                continue
+        mp = tempfile.mkdtemp(prefix="clonix-esp-")
+        try:
+            try:
+                runner.run(["mount", "-t", "vfat", "-o", "ro", part, mp])
+            except ClonixError:
+                lines.append(f"✗ Partition EFI {part} : impossible de la lire (pas un FAT valide).")
+                continue
+            try:
+                for what, parts in (("chargeur Windows (bootmgfw.efi)", LOADERS[0][1]),
+                                    ("configuration de démarrage Windows (BCD)", BCD),
+                                    ("chargeur de secours (bootx64.efi)", FALLBACK)):
+                    ok = find_ci(mp, parts) is not None
+                    lines.append(f"{'✓' if ok else '✗'} {what} {'présent' if ok else 'absent'} sur {part}")
+            finally:
+                runner.run(["umount", mp], check=False)
+        finally:
+            try:
+                os.rmdir(mp)
+            except OSError:
+                pass
+    return lines
+
+
 def repair(runner, disk_path, efi_sysfs="/sys/firmware/efi", byid="/dev/disk/by-partuuid"):
     """Recrée l'entrée de démarrage UEFI du système présent sur ``disk_path``.
 

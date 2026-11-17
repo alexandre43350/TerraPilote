@@ -294,9 +294,16 @@ def _watch_usb(runner):
 def boot_entry(runner, disk_path):
     """Recrée l'entrée de démarrage UEFI du disque écrit (jamais bloquant)."""
     from clonix import efiboot
+    if not runner.dry_run:
+        try:
+            lines = efiboot.diagnose(runner, disk_path)
+        except Exception as exc:  # diagnostic seulement : ne jamais faire échouer l'opération
+            lines = [f"Diagnostic du démarrage impossible : {exc}"]
+        if lines:
+            runner.note("Démarrage du disque :\n" + "\n".join(lines))
     try:
         efiboot.repair(runner, disk_path)
-    except ClonixError as exc:
+    except Exception as exc:
         runner.warn(f"Entrée de démarrage UEFI non créée ({exc}). Si le PC affiche « Périphérique "
                     "d'amorçage introuvable », utilisez « Réparer Windows » depuis Clonix, ou démarrez "
                     "une fois depuis le fichier \\EFI\\Microsoft\\Boot\\bootmgfw.efi (menu F9 sur HP).")

@@ -93,5 +93,49 @@ class EfiBootTest(unittest.TestCase):
         self.assertIn("C12A7328", GPT_DUMP)
 
 
+
+class DiagnoseTest(unittest.TestCase):
+    def setUp(self):
+        self.esp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.esp, True)
+
+    def diagnose(self, r, disk="/dev/sda"):
+        with mock.patch("tempfile.mkdtemp", return_value=self.esp), mock.patch("os.rmdir"):
+            return efiboot.diagnose(r, disk)
+
+    def test_healthy_windows(self):
+        os.makedirs(os.path.join(self.esp, "EFI", "Microsoft", "Boot"))
+        for name in ("bootmgfw.efi", "BCD"):
+            open(os.path.join(self.esp, "EFI", "Microsoft", "Boot", name), "w").close()
+        r = FakeRunner(tools=["fsck.fat"])
+        lines = self.diagnose(r)
+        self.assertIn("✓ Partition EFI /dev/sda1 : système de fichiers FAT valide.", lines)
+        self.assertIn("✓ chargeur Windows (bootmgfw.efi) présent sur /dev/sda1", lines)
+        self.assertIn("✓ configuration de démarrage Windows (BCD) présent sur /dev/sda1", lines)
+        self.assertIn("✗ chargeur de secours (bootx64.efi) absent sur /dev/sda1", lines)
+
+    def test_broken_fat(self):
+        from clonix.errors import CommandError
+
+        class R(FakeRunner):
+            def run(self, argv, **kw):
+                if argv[0] == "fsck.fat":
+                    raise CommandError(argv, 1, "Logical sector size is zero.")
+                return super().run(argv, **kw)
+        lines = self.diagnose(R(tools=["fsck.fat"]))
+        self.assertTrue(lines[0].startswith("✗ Partition EFI /dev/sda1 : système de fichiers FAT abîmé"))
+
+    def test_mbr_disk(self):
+        from tests.fakes import DOS_DUMP
+        r = FakeRunner(dumps={"/dev/sdb": DOS_DUMP})
+        lines = self.diagnose(r, "/dev/sdb")
+        self.assertIn("format MBR", lines[0])
+
+    def test_gpt_without_esp(self):
+        dump = GPT_DUMP.replace("C12A7328-F81F-11D2-BA4B-00A0C93EC93B", "EBD0A0A2-B9E5-4433-87C0-68B6B72699C7")
+        lines = self.diagnose(FakeRunner(dumps={"/dev/sda": dump}))
+        self.assertIn("Aucune partition EFI", lines[0])
+
+
 if __name__ == "__main__":
     unittest.main()
