@@ -102,6 +102,28 @@ séparée. Le disque ne démarre plus en mode Legacy ensuite.
 Dépannage immédiat sur un PC déjà déployé : menu de démarrage (F9 sur HP) →
 « Démarrer depuis un fichier EFI » → `EFI\Microsoft\Boot\bootmgfw.efi`.
 
+## Nom des PC, fin d'opération et mode atelier
+
+- **Nom du PC** : au déploiement, champ « Nom du PC après déploiement ». Un nom fixe
+  (`ACCUEIL-01`) ou une **série** avec `#` : `SALLE1-PC##` donne SALLE1-PC01,
+  SALLE1-PC02… Le prochain numéro est gardé sur le support des images et n'est
+  consommé que si le renommage a réussi. Clonix écrit le nom directement dans le
+  registre du Windows déployé (ComputerName, Hostname) : le PC démarre sous ce nom.
+  Un PC joint à un domaine doit y être rejoint après (son ancien compte ne suit pas).
+- **Une fois terminé** : après un déploiement, un clonage ou une réception
+  multicast réussis, le PC **s'éteint** (par défaut) ou **redémarre** au bout d'un
+  compte à rebours de 20 s, avec les boutons « Éteindre maintenant »,
+  « Redémarrer » et « Rester sur Clonix » (« Retour au tableau de bord » annule aussi).
+- **Mode atelier** (tuile du tableau de bord) : déploiement en série sans clic. On
+  choisit une fois l'image, le nom (série), le compte à rebours (10 à 60 s) et
+  l'action de fin ; le réglage est enregistré sur le support des images. Ensuite,
+  chaque PC démarré sur la clé affiche un compte à rebours plein écran
+  (« Annuler — ne rien effacer »), déploie l'image, se renomme et s'éteint.
+  **Sécurité** : le disque effacé est le seul disque interne du PC assez grand ;
+  jamais un disque USB, amovible, la clé ou le support des images. S'il y a zéro ou
+  plusieurs candidats, rien n'est effacé et un bandeau explique pourquoi.
+  Désactivez le mode atelier une fois la salle terminée.
+
 ## Vitesse
 
 - **Copie des seuls blocs utilisés** (partclone) : un disque de 500 Go rempli à

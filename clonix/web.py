@@ -18,7 +18,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from clonix import __version__
-from clonix import bootinfo, efiboot
+from clonix import atelier, bootinfo, efiboot, naming
 from clonix import disks as dk
 from clonix import image as im
 from clonix import multicast as mc
@@ -114,8 +114,131 @@ class App:
         self._store_disk = None
         self._known = block_devices()
         self._retry = 0
-        if hotplug and not dry_run:
+        self.atelier = {"phase": "off"}
+        self._atelier_token = 0
+        self._atelier_tried = False
+        self.power = {"phase": "off"}
+        self._power_token = 0
+        self._hotplug_started = bool(hotplug and not dry_run)
+        if self._hotplug_started:
             threading.Thread(target=self._hotplug_loop, daemon=True).start()
+            self.arm_atelier()
+
+    # ------------------------------------------------------------ mode atelier
+    def arm_atelier(self, start_thread=True):
+        """Au démarrage : si le mode atelier est actif, lance le compte à rebours.
+
+        Une seule tentative par démarrage de Clonix ; rien n'est effacé si le
+        disque cible n'est pas certain (voir atelier.pick_target).
+        """
+        self._atelier_tried = True
+        cfg = atelier.load(self.image_dir) if os.path.isdir(self.image_dir) else None
+        if not cfg or not cfg.get("enabled"):
+            self.atelier = {"phase": "off"}
+            return self.atelier
+        base = {"image": cfg["image"], "after": cfg["after"], "done": cfg.get("done", 0)}
+        manifest = {n: m for n, m, _ in im.list_images(self.image_dir)}.get(cfg["image"])
+        if manifest is None:
+            self.atelier = {**base, "phase": "blocked",
+                            "reason": f"l'image « {cfg['image']} » n'est plus dans le dépôt"}
+            return self.atelier
+        disk, reason = atelier.pick_target(self.inspect, self.image_dir, atelier.image_need(manifest))
+        if disk is None:
+            self.atelier = {**base, "phase": "blocked", "reason": reason}
+            return self.atelier
+        self._atelier_token += 1
+        token = self._atelier_token
+        self.atelier = {**base, "phase": "countdown", "deadline": time.time() + cfg["countdown"],
+                        "countdown": cfg["countdown"], "disk": disk.path, "disk_desc": disk.describe(),
+                        "name": naming.peek(self.image_dir, cfg["name_pattern"])}
+        if start_thread:
+            threading.Thread(target=self._atelier_wait, args=(token, cfg, disk.path, manifest),
+                             daemon=True).start()
+        return self.atelier
+
+    def _atelier_wait(self, token, cfg, disk_path, manifest):
+        while time.time() < self.atelier.get("deadline", 0):
+            if token != self._atelier_token:
+                return
+            time.sleep(0.25)
+        if token == self._atelier_token:
+            self.atelier_fire(cfg, disk_path, manifest)
+
+    def atelier_fire(self, cfg, disk_path, manifest):
+        """Fin du compte à rebours : déploiement et nom du PC (puis extinction, voir arm_power)."""
+        make_uefi = (cfg.get("uefi", True) and manifest.get("table", {}).get("label") == "dos"
+                     and efiboot.boot_mode() == "uefi")
+
+        def work(r):
+            ops.deploy_named(r, cfg["image"], disk_path, self.image_dir, cfg.get("name_pattern", ""),
+                             adapt_windows=cfg.get("adapt", True), expand=cfg.get("expand", True),
+                             make_uefi=make_uefi)
+            cur = atelier.load(self.image_dir) or cfg
+            cur["done"] = cur.get("done", 0) + 1
+            if not self.dry_run:
+                atelier.save(self.image_dir, cur)
+            self.atelier = {**self.atelier, "done": cur["done"], "phase": "finished"}
+            r.note(f"Mode atelier : PC n° {cur['done']} terminé.")
+
+        self.atelier = {**self.atelier, "phase": "running"}
+        self._atelier_token += 1
+        try:
+            return self.start("deploy", f"Mode atelier : « {cfg['image']} » → {disk_path}", work,
+                              after=cfg.get("after", "poweroff"))
+        except ApiError as exc:
+            self.atelier = {**self.atelier, "phase": "blocked", "reason": str(exc)}
+            return None
+
+    def atelier_public(self):
+        a = dict(self.atelier)
+        deadline = a.pop("deadline", None)
+        if a.get("phase") == "countdown" and deadline:
+            a["remaining"] = max(0.0, deadline - time.time())
+        return a
+
+    # ------------------------------------------- éteindre / redémarrer à la fin
+    def arm_power(self, action="poweroff", seconds=None, start_thread=True):
+        """Compte à rebours avant d'éteindre (ou redémarrer) le PC après un déploiement réussi."""
+        if action not in ("poweroff", "reboot"):
+            self.power = {"phase": "off"}
+            return self.power
+        self._power_token += 1
+        token = self._power_token
+        seconds = POWER_COUNTDOWN if seconds is None else seconds
+        self.power = {"phase": "countdown", "action": action, "deadline": time.time() + seconds,
+                      "countdown": seconds}
+        if start_thread:
+            threading.Thread(target=self._power_wait, args=(token,), daemon=True).start()
+        return self.power
+
+    def _power_wait(self, token):
+        while time.time() < self.power.get("deadline", 0):
+            if token != self._power_token:
+                return
+            time.sleep(0.25)
+        if token == self._power_token:
+            self.power_now(self.power.get("action", "poweroff"))
+
+    def power_now(self, action):
+        if action not in ("poweroff", "reboot"):
+            raise ApiError("Action inconnue")
+        self._power_token += 1
+        self.power = {"phase": "done", "action": action}
+        if not self.dry_run and self._hotplug_started:  # seulement le vrai Clonix démarré sur la clé
+            subprocess.Popen(["systemctl", action])
+        return {"ok": True}
+
+    def cancel_power(self):
+        self._power_token += 1
+        self.power = {"phase": "off"}
+        return {"ok": True}
+
+    def power_public(self):
+        p = dict(self.power)
+        deadline = p.pop("deadline", None)
+        if p.get("phase") == "countdown" and deadline:
+            p["remaining"] = max(0.0, deadline - time.time())
+        return p
 
     def boot_info(self):
         """Durée du démarrage (mesurée une fois que le démarrage est terminé)."""
@@ -167,6 +290,8 @@ class App:
             self._retry -= 1
             if storage.auto_mount_data(r, self.image_dir):
                 self._retry = 0
+                if self._hotplug_started and not self._atelier_tried:
+                    self.arm_atelier()  # support des images branché après le démarrage
                 self._store_disk = dk.disk_of_mount(r, self.image_dir)
                 link = dk.store_link(r, self.image_dir, dk.fstype_of_mount(r, self.image_dir))
                 self._event(f"Support des images rebranché et monté ({link['label']}"
@@ -226,10 +351,15 @@ class App:
             "storage_event": self.storage_event,
             "boot": self.boot_info(),
             "boot_mode": efiboot.boot_mode(),
+            "atelier": self.atelier_public(),
+            "atelier_config": atelier.load(self.image_dir) if os.path.isdir(self.image_dir) else None,
+            "naming": naming.counters(self.image_dir) if os.path.isdir(self.image_dir) else {},
+            "power": self.power_public(),
         }
 
     # ---------------------------------------------------------------- tâches
-    def start(self, kind, title, fn):
+    def start(self, kind, title, fn, after=None):
+        """Lance une tâche. ``after`` : « poweroff »/« reboot » après réussite (avec compte à rebours)."""
         with self.lock:
             if self.job and self.job.state == "running":
                 raise ApiError("Une opération est déjà en cours", HTTPStatus.CONFLICT)
@@ -241,6 +371,8 @@ class App:
             try:
                 fn(job.runner)
                 job.state = "done"
+                if after in ("poweroff", "reboot"):
+                    self.arm_power(after)
                 if job.progress:
                     job.progress = dict(job.progress, fraction=1.0, overall=1.0, eta=0)
             except Cancelled:
@@ -301,6 +433,29 @@ class App:
         d = self.image_dir
         if name == "delete-image":
             return self.delete_image(body)
+        if name == "atelier-save":
+            cfg = atelier.validate(d, body)
+            if cfg["name_pattern"] and body.get("next_number"):
+                naming.set_next(d, cfg["name_pattern"], int(body["next_number"]))
+            if not self.dry_run:
+                atelier.save(d, cfg)
+            return {"ok": True}
+        if name == "atelier-off":
+            cfg = atelier.load(d)
+            if cfg and not self.dry_run:
+                atelier.save(d, {**cfg, "enabled": False})
+            self._atelier_token += 1
+            self.atelier = {"phase": "off"}
+            return {"ok": True}
+        if name == "atelier-cancel":
+            self._atelier_token += 1
+            self.atelier = {**self.atelier, "phase": "cancelled"}
+            self.atelier.pop("deadline", None)
+            return {"ok": True}
+        if name == "power-cancel":
+            return self.cancel_power()
+        if name == "power-now":
+            return self.power_now(body.get("action"))
         if name == "make-resizable":
             image = _clean_name(body.get("image", ""))
             return self.start("convert", f"Rendre « {image} » adaptable aux disques plus petits",
@@ -319,18 +474,23 @@ class App:
             disk = self._disk(body["disk"], writable=True)
             self._confirm(disk, body)
             image = body["image"]
+            pattern = (body.get("name") or "").strip()
+            if pattern:
+                naming.check_pattern(pattern)
             return self.start("deploy", f"Déploiement de « {image} » → {disk.path}",
-                              lambda r: ops.deploy(r, ops.open_image(image, d), disk.path, d,
-                                                   new_uuids=bool(body.get("new_uuids")),
-                                                   adapt_windows=bool(body.get("adapt", True)),
-                                                   expand=bool(body.get("expand", True)),
-                                                   make_uefi=bool(body.get("uefi", False))))
+                              lambda r: ops.deploy_named(r, image, disk.path, d, pattern,
+                                                         new_uuids=bool(body.get("new_uuids")),
+                                                         adapt_windows=bool(body.get("adapt", True)),
+                                                         expand=bool(body.get("expand", True)),
+                                                         make_uefi=bool(body.get("uefi", False))),
+                              after=_after(body))
         if name == "clone":
             src = self._disk(body["source"], writable=False)
             dst = self._disk(body["target"], writable=True)
             self._confirm(dst, body)
             return self.start("clone", f"Clonage {src.path} → {dst.path}",
-                              lambda r: ops.clone(r, src.path, dst.path, new_uuids=bool(body.get("new_uuids"))))
+                              lambda r: ops.clone(r, src.path, dst.path, new_uuids=bool(body.get("new_uuids"))),
+                              after=_after(body))
         if name == "mcast-send":
             receivers = int(body.get("receivers", 1))
             if receivers < 1:
@@ -345,7 +505,8 @@ class App:
             return self.start("mcast-recv", f"Réception multicast → {disk.path}",
                               lambda r: mc.receive(r, disk.path, interface=mc.default_interface(),
                                                    adapt_windows=bool(body.get("adapt", True)),
-                                                   expand=bool(body.get("expand", True))))
+                                                   expand=bool(body.get("expand", True))),
+                              after=_after(body))
         if name == "verify":
             image = body["image"]
 
@@ -416,6 +577,12 @@ class App:
         return {"ok": True}
 
 
+def _after(body):
+    """Que faire après un déploiement réussi : éteindre (par défaut), redémarrer ou rien."""
+    after = body.get("after", "poweroff")
+    return after if after in ("poweroff", "reboot") else None
+
+
 def _clean_name(name):
     name = name.strip()
     if not name or "/" in name or name.startswith(".") or len(name) > 80:
@@ -433,6 +600,7 @@ def _addresses(runner):
     return [line.split()[3].split("/")[0] for line in out.splitlines() if len(line.split()) > 3]
 
 
+POWER_COUNTDOWN = 20  # secondes avant d'éteindre le PC après un déploiement réussi
 HOTPLUG_PERIOD = 2.0
 HOTPLUG_RETRIES = 5
 _VIRTUAL_BLOCK = ("loop", "ram", "zram", "dm-", "sr", "md", "nbd")

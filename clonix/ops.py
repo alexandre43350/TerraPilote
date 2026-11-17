@@ -432,7 +432,7 @@ def grow_filesystem(runner, fstype, device):
 
 
 def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=None, adapt_windows=False,
-           expand=True, make_uefi=False):
+           expand=True, make_uefi=False, computer_name=None):
     """Restaure une image (``DirSource`` ou ``TarStreamSource``) sur ``disk_path``.
 
     ``confirm(manifest, disk)`` est appelé après lecture du manifeste et avant
@@ -540,6 +540,13 @@ def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=N
         except ClonixError as exc:
             runner.warn(f"Adaptation de Windows impossible : {exc}. Windows risque de ne pas "
                         "démarrer (écran bleu INACCESSIBLE_BOOT_DEVICE).")
+    if computer_name and any(r.get("fstype") == "ntfs" for r in manifest["partitions"]):
+        from clonix import winfix
+        try:
+            winfix.rename(runner, disk.path, computer_name)
+            manifest["computer_name"] = computer_name
+        except ClonixError as exc:
+            runner.warn(f"Nom du PC non modifié ({exc}). Le PC garde le nom du PC d'origine.")
     if make_uefi and table.label == "dos":
         make_uefi_bootable(runner, disk.path)
     else:
@@ -548,6 +555,20 @@ def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=N
     runner.clear_watches()
     runner.log(f"Déploiement terminé sur {disk.path}")
     _summary(runner, "Déploiement", started, im.image_bytes(manifest), "lus")
+    return manifest
+
+
+def deploy_named(runner, image, disk_path, image_dir, name_pattern="", **kw):
+    """Déploie ``image`` et donne au PC un nom fixe ou le suivant d'une série (PC##)."""
+    from clonix import naming
+    name = number = None
+    if name_pattern:
+        naming.check_pattern(name_pattern)
+        number = naming.next_number(image_dir, name_pattern)
+        name = naming.expand(name_pattern, number)
+    manifest = deploy(runner, open_image(image, image_dir), disk_path, image_dir, computer_name=name, **kw)
+    if manifest.get("computer_name") and not runner.dry_run:
+        naming.commit(image_dir, name_pattern, number)
     return manifest
 
 

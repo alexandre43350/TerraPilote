@@ -171,7 +171,8 @@ def cmd_umount(runner, args):
 def cmd_web(runner, args):
     from clonix import web
     if args.demo:
-        from clonix.demo import DemoApp
+        from clonix.demo import DemoApp, _demo_patches
+        _demo_patches()
         app = DemoApp()
     else:
         app = web.App(args.dir, dry_run=args.dry_run, hotplug=True)

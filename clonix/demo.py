@@ -123,6 +123,18 @@ class DemoRunner(Runner):
         raise RuntimeError("multicast simulé")
 
 
+def _demo_patches():
+    """La démo n'a pas de vrai Windows ni de vrai mode de démarrage : réponses simulées."""
+    from clonix import efiboot, winfix
+    efiboot.boot_mode = lambda *a, **k: "uefi"
+    efiboot.diagnose = lambda runner, disk: [
+        f"✓ Partition EFI {disk}p1 : système de fichiers FAT valide.",
+        f"✓ chargeur Windows (bootmgfw.efi) présent sur {disk}p1",
+        f"✓ configuration de démarrage Windows (BCD) présent sur {disk}p1"]
+    efiboot.repair = lambda runner, disk, **k: runner.log("✓ Entrée de démarrage « Windows Boot Manager » créée")
+    winfix.rename = lambda runner, disk, name, hivex_mod=None: runner.note(f"Nom du PC : {name}")
+
+
 class DemoApp(App):
     def __init__(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="clonix-demo-")

@@ -165,3 +165,82 @@ def adapt(runner, disk_path, hivex_mod=None):
             except OSError:
                 pass
     raise ClonixError(f"Aucune installation Windows trouvée sur {disk.path}")
+
+
+REG_SZ = 1
+
+
+def _sz(text):
+    return (text + "\x00").encode("utf-16-le")
+
+
+def set_computer_name(hive_path, name, hivex_mod=None):
+    """Change le nom de l'ordinateur dans une ruche SYSTEM hors ligne.
+
+    Windows lit ces valeurs au démarrage : le PC démarre directement sous son
+    nouveau nom. Retourne la liste des modifications.
+    """
+    hivex_mod = hivex_mod or _load_hivex()
+    h = hivex_mod.Hivex(hive_path, write=True)
+    netbios = name.upper()
+    changes = []
+    for control_set in h.node_children(h.root()):
+        cs_name = h.node_name(control_set)
+        if not cs_name.lower().startswith("controlset"):
+            continue
+        control = _child(h, control_set, "Control")
+        cn_root = _child(h, control, "ComputerName") if control is not None else None
+        if cn_root is not None:
+            for sub in ("ComputerName", "ActiveComputerName"):
+                node = _child(h, cn_root, sub)
+                if node is not None:
+                    h.node_set_value(node, {"key": "ComputerName", "t": REG_SZ, "value": _sz(netbios)})
+                    changes.append(f"{cs_name}\\Control\\ComputerName\\{sub} = {netbios}")
+        services = _child(h, control_set, "Services")
+        tcpip = _child(h, services, "Tcpip") if services is not None else None
+        params = _child(h, tcpip, "Parameters") if tcpip is not None else None
+        if params is not None:
+            for key in ("Hostname", "NV Hostname"):
+                h.node_set_value(params, {"key": key, "t": REG_SZ, "value": _sz(name)})
+            changes.append(f"{cs_name}\\Services\\Tcpip\\Parameters\\Hostname = {name}")
+    if not changes:
+        raise ClonixError("Nom de l'ordinateur introuvable dans le registre de Windows")
+    h.commit(None)
+    return changes
+
+
+def rename(runner, disk_path, name, hivex_mod=None):
+    """Donne le nom ``name`` au Windows présent sur ``disk_path``."""
+    from clonix.naming import check_name
+    check_name(name)
+    disk = dk.get_disk(runner, disk_path)
+    if runner.dry_run:
+        runner.log(f"[dry-run] nom du PC sur {disk.path} : {name}")
+        return []
+    for part in disk.partitions:
+        if part.fstype != "ntfs":
+            continue
+        mp = tempfile.mkdtemp(prefix="clonix-name-")
+        try:
+            try:
+                runner.run(["mount", "-t", "ntfs-3g", "-o", "remove_hiberfile", part.path, mp])
+            except ClonixError:
+                continue
+            try:
+                hive = find_system_hive(mp)
+                if not hive:
+                    continue
+                changes = set_computer_name(hive, name, hivex_mod)
+                for line in changes:
+                    runner.log(f"  {line}")
+                runner.note(f"Nom du PC : {name}")
+                return changes
+            finally:
+                runner.run(["sync"], check=False)
+                runner.run(["umount", mp], check=False)
+        finally:
+            try:
+                os.rmdir(mp)
+            except OSError:
+                pass
+    raise ClonixError(f"Aucune installation Windows trouvée sur {disk.path} pour lui donner un nom")

@@ -148,6 +148,7 @@ const ACTIONS = [
   { id: "key", c: "c-amber", title: "Mot de passe", text: "Réinitialiser l'admin d'un poste", run: () => wizardPassword(), small: true },
   { id: "gauge", c: "c-cyan", title: "Vitesses", text: "Trouver ce qui ralentit", run: () => wizardBench(), small: true },
   { id: "wrench", c: "c-blue", title: "Réparer Windows", text: "Écran bleu au démarrage (0x7B)", run: () => wizardWinfix(), small: true },
+  { id: "stack", c: "c-amber", title: "Mode atelier", text: "Déployer une salle entière, sans clic", run: () => wizardAtelier(), small: true },
 ];
 
 function renderActions() {
@@ -159,6 +160,11 @@ function renderActions() {
       a.small ? h("div", {}, h("h3", {}, a.title), h("p", {}, a.text)) : [h("h3", {}, a.title), h("p", {}, a.text)],
       icon("arrow", "go")));
   }
+}
+
+/* replaceChildren sans les éléments vides (null s'afficherait en toutes lettres) */
+function fill(el, ...kids) {
+  el.replaceChildren(...kids.flat().filter((k) => k !== null && k !== undefined && k !== false));
 }
 
 function stat(label, value, sub, ic, cls) {
@@ -175,7 +181,7 @@ function renderBoot() {
   const detail = [b.kernel != null ? `Linux ${secs(b.kernel)}` : null, b.userspace != null ? `services ${secs(b.userspace)}` : null,
     b.firmware != null ? `PC ${secs(b.firmware)}` : null].filter(Boolean).join(" · ");
   el.title = (detail ? detail + ". " : "") + "Le temps du PC et du menu Ventoy avant Linux n'est pas compté.";
-  el.replaceChildren(
+  fill(el,
     h("span", {}, "Démarrage : ", h("strong", {}, secs(b.screen))),
     b.in_ram === true ? h("span", {}, b.toram != null ? `dont ${secs(b.toram)} de chargement en mémoire${b.ram_bytes ? " (" + size(b.ram_bytes) + ")" : ""}`
       : `chargé en mémoire${b.ram_bytes ? " (" + size(b.ram_bytes) + ")" : ""}`)
@@ -232,6 +238,7 @@ function render() {
     h("button", { class: "btn" + (st.mounted ? "" : " primary"), onclick: () => storageDialog() }, st.mounted ? "Changer de dépôt" : "Configurer le dépôt"),
   ].filter(Boolean));
   renderBoot();
+  renderAtelier();
   $("#side-net").replaceChildren(icon("net"), S.interface ? `Interface ${S.interface}` : "Aucun réseau");
 
   $("#disk-count").textContent = `${S.disks.length} disque(s)`;
@@ -322,6 +329,135 @@ function uefiCheck(box) {
   return h("label", { class: "check" }, box, h("span", {},
     h("strong", {}, "Rendre Windows démarrable en UEFI (expérimental). "),
     "Comme la conversion d'AOMEI : la partition « Réservé au système » devient la partition de démarrage UEFI et reçoit les fichiers de démarrage UEFI de Windows. Le disque ne démarrera plus en mode Legacy. En cas de souci, redéployez sans cette option et activez Legacy/CSM dans le BIOS."));
+}
+
+/* ------------------------------------------------ après l'opération, nom du PC */
+const AFTER_LABELS = [["poweroff", "Éteindre"], ["reboot", "Redémarrer"], ["none", "Rester sur Clonix"]];
+function afterChoice(initial = "poweroff") {
+  let value = initial;
+  const seg = h("div", { class: "seg" }, AFTER_LABELS.map(([v, l]) =>
+    h("button", { class: v === value ? "on" : "", onclick: (e) => { value = v; seg.querySelectorAll("button").forEach((b) => b.classList.remove("on")); e.currentTarget.classList.add("on"); } }, l)));
+  const el = h("div", { class: "field" }, h("label", {}, "Une fois terminé"), seg,
+    h("p", { class: "note" }, "Avec un compte à rebours de 20 secondes, pour pouvoir changer d'avis."));
+  return { el, get: () => value };
+}
+
+function seriesNext(pattern) {
+  if (!pattern || !pattern.includes("#")) return null;
+  return (S.naming && S.naming[pattern]) || 1;
+}
+function expandName(pattern, n) {
+  return pattern.replace(/#+/, (m) => String(n).padStart(m.length, "0"));
+}
+function nameField(initial = "") {
+  const input = h("input", { value: initial, placeholder: "ex. SALLE1-PC## (laisser vide pour garder le nom)", maxlength: 15 });
+  const hint = h("p", { class: "note" });
+  const update = () => {
+    const v = input.value.trim().toUpperCase();
+    if (input.value !== v) input.value = v;
+    const n = seriesNext(v);
+    hint.textContent = !v ? "Le PC gardera le nom du PC d'origine (doublon sur le réseau)."
+      : n ? `Série : ce PC s'appellera ${expandName(v, n)}, le suivant ${expandName(v, n + 1)}… (# = numéro automatique)`
+        : `Ce PC s'appellera ${v}.`;
+  };
+  input.addEventListener("input", update);
+  update();
+  return { el: h("div", { class: "field" }, h("label", {}, "Nom du PC après déploiement"), input, hint), get: () => input.value.trim() };
+}
+
+/* ---------------------------------------------- compte à rebours de fin (éteindre) */
+let powerTimer = null;
+function renderPower(job) {
+  const box = $("#power-box");
+  const p = S.power || {};
+  const show = p.phase === "countdown" && job && job.state === "done";
+  box.hidden = !show;
+  clearInterval(powerTimer);
+  if (!show) return;
+  const until = Date.now() + (p.remaining || 0) * 1000;
+  const verb = p.action === "reboot" ? "redémarre" : "s'éteint";
+  const count = h("strong", {});
+  const tick = () => { count.textContent = `${Math.max(0, Math.ceil((until - Date.now()) / 1000))} s`; };
+  tick();
+  powerTimer = setInterval(tick, 250);
+  const act = (name, body) => async () => { try { await api(name, body); refresh(); } catch (e) { toast(e.message, true); } };
+  box.replaceChildren(
+    h("p", { class: "power-line" }, `Le PC ${verb} dans `, count),
+    h("div", { class: "power-actions" },
+      h("button", { class: "btn primary", onclick: act("power-now", { action: "poweroff" }) }, icon("power"), "Éteindre maintenant"),
+      h("button", { class: "btn", onclick: act("power-now", { action: "reboot" }) }, icon("reboot"), "Redémarrer"),
+      h("button", { class: "btn ghost", onclick: act("power-cancel", {}) }, "Rester sur Clonix")));
+}
+
+/* ------------------------------------------------------------------ mode atelier */
+let atelierTimer = null;
+function renderAtelier() {
+  const a = S.atelier || {}, cfg = S.atelier_config;
+  const chip = $("#chip-atelier");
+  chip.hidden = !(cfg && cfg.enabled);
+  chip.onclick = () => wizardAtelier();
+  if (!chip.hidden) chip.textContent = `Mode atelier actif · ${cfg.image} · ${cfg.done || 0} PC faits`;
+  const banner = $("#atelier-banner");
+  banner.hidden = !(a.phase === "blocked" || a.phase === "cancelled");
+  if (!banner.hidden) {
+    banner.replaceChildren(h("p", {}, a.phase === "cancelled"
+      ? "⚠ Mode atelier : déploiement automatique annulé sur ce PC. Rien n'a été effacé."
+      : `⚠ Mode atelier : pas de déploiement automatique sur ce PC, ${a.reason}. Rien n'a été effacé.`),
+      h("button", { class: "link-btn", onclick: () => wizardAtelier() }, "Régler le mode atelier"));
+  }
+  const ov = $("#atelier");
+  const show = a.phase === "countdown";
+  ov.hidden = !show;
+  clearInterval(atelierTimer);
+  if (!show) return;
+  const until = Date.now() + (a.remaining || 0) * 1000;
+  const count = h("div", { class: "atelier-count" });
+  const tick = () => { count.textContent = String(Math.max(0, Math.ceil((until - Date.now()) / 1000))); };
+  tick();
+  atelierTimer = setInterval(tick, 250);
+  const after = { poweroff: "puis le PC s'éteindra", reboot: "puis le PC redémarrera", none: "puis Clonix restera ouvert" }[a.after] || "";
+  ov.replaceChildren(h("div", { class: "atelier-card" },
+    h("p", { class: "eyebrow" }, "Mode atelier"),
+    h("h1", {}, "Effacement et déploiement automatiques"),
+    count,
+    h("p", { class: "atelier-what" }, h("strong", {}, a.disk_desc || a.disk), " sera entièrement effacé et recevra l'image ",
+      h("strong", {}, `« ${a.image} »`), a.name ? [", nom du PC ", h("strong", {}, a.name)] : null, `, ${after}.`),
+    h("button", { class: "btn danger big", onclick: async () => { try { await api("atelier-cancel", {}); refresh(); } catch (e) { toast(e.message, true); } } }, "Annuler — ne rien effacer"),
+    h("p", { class: "note" }, `PC déjà faits avec ce réglage : ${a.done || 0}`)));
+}
+
+function wizardAtelier(sel = {}) {
+  if (needImages()) return;
+  const cfg = S.atelier_config || {};
+  const image = sel.image || (cfg.enabled ? cfg.image : "");
+  const name = nameField(sel.name !== undefined ? sel.name : (cfg.name_pattern || ""));
+  const after = afterChoice(cfg.after || "poweroff");
+  const adapt = h("input", { type: "checkbox" }); adapt.checked = cfg.adapt !== false;
+  const expand = h("input", { type: "checkbox" }); expand.checked = cfg.expand !== false;
+  let countdown = cfg.countdown || 20;
+  const cseg = h("div", { class: "seg" }, [10, 20, 30, 60].map((v) =>
+    h("button", { class: v === countdown ? "on" : "", onclick: (e) => { countdown = v; cseg.querySelectorAll("button").forEach((b) => b.classList.remove("on")); e.currentTarget.classList.add("on"); } }, `${v} s`)));
+  const save = async () => {
+    if (!image) return toast("Choisissez une image", true);
+    try {
+      await api("atelier-save", { image, name_pattern: name.get().toUpperCase(), after: after.get(), adapt: adapt.checked, expand: expand.checked, uefi: true, countdown });
+      closeModal(); toast("Mode atelier activé : il démarrera sur les prochains PC démarrés sur la clé."); refresh();
+    } catch (e) { toast(e.message, true); }
+  };
+  const off = async () => { try { await api("atelier-off", {}); closeModal(); toast("Mode atelier désactivé"); refresh(); } catch (e) { toast(e.message, true); } };
+  openModal(wizHead("Mode atelier", "Déploiement en série, sans clic : chaque PC démarré sur la clé est effacé et reçoit l'image automatiquement, après un compte à rebours."),
+    h("div", { class: "field" }, h("label", {}, "Image à déployer"),
+      imagePicker(image, (i) => wizardAtelier({ ...sel, image: i.name, name: name.get() }))),
+    name.el,
+    h("div", { class: "field" }, h("label", {}, "Compte à rebours avant d'effacer"), cseg),
+    after.el,
+    h("label", { class: "check" }, adapt, h("span", {}, "Adapter Windows à chaque PC (recommandé).")),
+    h("label", { class: "check" }, expand, h("span", {}, "Utiliser tout le disque de chaque PC (recommandé).")),
+    h("div", { class: "warn-box" }, h("p", {}, "⚠ Tant que le mode atelier est actif, ", h("strong", {}, "tout PC qui démarre sur cette clé"),
+      " voit son disque interne effacé à la fin du compte à rebours (sauf s'il en a plusieurs, ou un trop petit : rien n'est alors effacé). Désactivez-le une fois la salle terminée.")),
+    h("div", { class: "wiz-foot" },
+      cfg.enabled ? h("button", { class: "btn danger-ghost", onclick: off }, "Désactiver") : h("button", { class: "btn", onclick: closeModal }, "Annuler"),
+      h("button", { class: "btn primary", onclick: save }, cfg.enabled ? "Enregistrer" : "Activer le mode atelier")));
 }
 
 function confirmConvert(img) {
@@ -500,7 +636,9 @@ function wizardDeploy(step = 0, sel = {}) {
   const expand = h("input", { type: "checkbox" });
   expand.checked = true;
   const GIB = 1024 ** 3;
-  const go = h("button", { class: "btn danger", disabled: true, onclick: () => launch("deploy", { image: img.name, disk: d.path, confirm: typed, new_uuids: uu.checked, adapt: adapt.checked, expand: expand.checked, uefi: uefiBox.checked }) }, "Effacer et déployer");
+  const pcName = nameField(sel.name || "");
+  const afterDeploy = afterChoice();
+  const go = h("button", { class: "btn danger", disabled: true, onclick: () => launch("deploy", { image: img.name, disk: d.path, confirm: typed, new_uuids: uu.checked, adapt: adapt.checked, expand: expand.checked, uefi: uefiBox.checked, name: pcName.get().toUpperCase(), after: afterDeploy.get() }) }, "Effacer et déployer");
   const main = img.partitions.filter((p) => p.fstype === "ntfs" || /^ext[234]$/.test(p.fstype || ""))
     .sort((a, b) => (b.mode === "wim") - (a.mode === "wim") || b.size - a.size)[0];
   const modeWarn = bootModeProblem(img);
@@ -523,6 +661,7 @@ function wizardDeploy(step = 0, sel = {}) {
     sizing,
     h("label", { class: "check" }, adapt, h("span", {}, "Adapter Windows à ce PC (recommandé). Évite l'écran bleu INACCESSIBLE_BOOT_DEVICE quand l'image vient d'un autre PC : Clonix active les pilotes de disque standard de Windows. Seule la copie déployée est modifiée.")),
     h("label", { class: "check" }, uu, h("span", {}, "Générer de nouveaux identifiants de disque et de partitions (déconseillé pour Windows).")),
+    h("div", { style: "height:14px" }), pcName.el, afterDeploy.el,
     h("div", { class: "wiz-foot" }, h("button", { class: "btn", onclick: () => wizardDeploy(1, sel) }, "Retour"), go));
 }
 
@@ -541,11 +680,13 @@ function wizardClone(step = 0, sel = {}) {
   }
   const dst = S.disks.find((x) => x.path === sel.target);
   let typed = "";
-  const go = h("button", { class: "btn danger", disabled: true, onclick: () => launch("clone", { source: src.path, target: dst.path, confirm: typed }) }, "Effacer et cloner");
+  const afterClone = afterChoice();
+  const go = h("button", { class: "btn danger", disabled: true, onclick: () => launch("clone", { source: src.path, target: dst.path, confirm: typed, after: afterClone.get() }) }, "Effacer et cloner");
   openModal(wizHead("Cloner un disque", "Dernière vérification avant l'écriture.", 2, 3),
     h("div", { class: "arrow" }, diskCard(src), flow(), diskCard(dst)),
     h("div", { style: "height:18px" }),
     dangerConfirm(dst, (valid, v) => { typed = v; go.disabled = !valid; }),
+    h("div", { style: "height:14px" }), afterClone.el,
     h("div", { class: "wiz-foot" }, h("button", { class: "btn", onclick: () => wizardClone(1, sel) }, "Retour"), go));
 }
 
@@ -578,11 +719,13 @@ function wizardReceive(step = 0, sel = {}) {
   let typed = "";
   const adapt = h("input", { type: "checkbox" });
   adapt.checked = true;
-  const go = h("button", { class: "btn danger", disabled: true, onclick: () => launch("mcast-recv", { disk: d.path, confirm: typed, adapt: adapt.checked }) }, "Effacer et attendre l'émetteur");
+  const afterRecv = afterChoice();
+  const go = h("button", { class: "btn danger", disabled: true, onclick: () => launch("mcast-recv", { disk: d.path, confirm: typed, adapt: adapt.checked, after: afterRecv.get() }) }, "Effacer et attendre l'émetteur");
   openModal(wizHead("Recevoir une image multicast", `Interface réseau : ${S.interface || "aucune"}`, 1, 2),
     diskCard(d), h("div", { style: "height:18px" }),
     dangerConfirm(d, (valid, v) => { typed = v; go.disabled = !valid; }),
     h("label", { class: "check" }, adapt, h("span", {}, "Adapter Windows à ce PC (recommandé). Évite l'écran bleu INACCESSIBLE_BOOT_DEVICE quand l'image vient d'un autre PC : Clonix active les pilotes de disque standard de Windows. Seule la copie déployée est modifiée.")),
+    afterRecv.el,
     h("div", { class: "wiz-foot" }, h("button", { class: "btn", onclick: () => wizardReceive(0, sel) }, "Retour"), go));
 }
 
@@ -795,8 +938,8 @@ function renderJob() {
   jl.hidden = !(link && link.kind === "usb");
   if (!jl.hidden) {
     jl.className = "job-link " + (link.slow ? "bad" : "good");
-    jl.replaceChildren(icon("usb"), h("span", {}, "Support des images : "), h("strong", {}, `${link.label} · ${link.detail}`),
-      link.slow ? h("span", { class: "job-link-tip" }, LINK_ADVICE) : null);
+    jl.replaceChildren(...[icon("usb"), h("span", {}, "Support des images : "), h("strong", {}, `${link.label} · ${link.detail}`),
+      link.slow ? h("span", { class: "job-link-tip" }, LINK_ADVICE) : null].filter(Boolean));
   }
   $("#job-rate").textContent = job.state === "running" ? rate(p.rate) : "—";
   $("#job-eta").textContent = job.state === "running" ? duration(p.eta) : "—";
@@ -823,6 +966,7 @@ function renderJob() {
   if (job.state === "error") $("#job-log").hidden = false;
   renderSpark(job);
   renderPlan(job);
+  renderPower(job);
 
   const log = $("#job-log");
   const sig = job.logs.length ? job.logs[job.logs.length - 1].t + job.logs.length : 0;
@@ -839,7 +983,11 @@ $("#job-cancel").onclick = async () => {
   if (!confirm("Annuler l'opération en cours ? Le disque cible restera inutilisable tant qu'une nouvelle copie n'aura pas été faite.")) return;
   try { await api("cancel", {}); } catch (e) { toast(e.message, true); }
 };
-$("#job-close").onclick = () => { dismissedJob = S.job.id; renderJob(); };
+$("#job-close").onclick = async () => {
+  // Retour au tableau de bord = rester sur Clonix : on annule l'extinction prévue.
+  if (S.power && S.power.phase === "countdown") { try { await api("power-cancel", {}); } catch (e) { /* rien */ } }
+  dismissedJob = S.job.id; renderJob(); refresh();
+};
 $("#job-logtoggle").onclick = () => { const l = $("#job-log"); l.hidden = !l.hidden; l.scrollTop = l.scrollHeight; };
 
 /* ------------------------------------------------------- navigation, divers */
