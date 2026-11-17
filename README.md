@@ -52,6 +52,23 @@ Tables MBR et GPT, démarrage BIOS et UEFI.
 - L'image adaptable demande un disque en GPT (démarrage UEFI, cas de tous les PC
   récents). La capture est un peu plus lente qu'en mode bloc.
 
+## Changer le support de port sans redémarrer
+
+Clonix se charge entièrement en mémoire au démarrage (option `toram` de Debian
+Live) : la clé ou le SSD qui l'a démarré n'est plus utilisé ensuite. On peut donc
+débrancher le support des images (par exemple s'il est indiqué « USB 2 ») et le
+rebrancher sur un autre port, **hors capture ou déploiement en cours** :
+
+- au débranchement, Clonix le détache proprement (et supprime les copies
+  `/dev/mapper` de Ventoy devenues orphelines) ;
+- au rebranchement, il le remonte tout seul ; l'afficheur USB 2 / USB 3 se met à
+  jour et un message le confirme.
+
+Si le PC n'a pas assez de mémoire, Debian ignore `toram` et Clonix continue de
+fonctionner depuis le support : l'encadré du dépôt l'indique (« Ne débranchez
+pas »). La clé de démarrage (Ventoy ou image Clonix copiée) est reconnue à son
+contenu et ne peut jamais être choisie comme disque cible.
+
 ## Vitesse
 
 - **Copie des seuls blocs utilisés** (partclone) : un disque de 500 Go rempli à

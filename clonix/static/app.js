@@ -95,13 +95,13 @@ async function api(path, body) {
 }
 
 let toastTimer;
-function toast(msg, bad) {
+function toast(msg, bad, ms = 4200) {
   const t = $("#toast");
   t.textContent = msg;
   t.className = "toast" + (bad ? " bad" : "");
   t.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (t.hidden = true), 4200);
+  toastTimer = setTimeout(() => (t.hidden = true), ms);
 }
 
 /* ------------------------------------------------------------------- état */
@@ -109,10 +109,14 @@ let S = null;
 let firstLoad = true;
 let dismissedJob = null;
 
+let lastStorageEvent = null;
 async function refresh() {
   try {
     S = await api("state");
     if (firstLoad && S.job && S.job.state !== "running") dismissedJob = S.job.id;
+    const ev = S.storage_event;
+    if (ev && lastStorageEvent !== null && ev.id !== lastStorageEvent) toast(ev.msg, ev.bad, 9000);
+    lastStorageEvent = ev ? ev.id : 0;
     firstLoad = false;
     $("#login").hidden = true;
     render();
@@ -204,6 +208,9 @@ function render() {
     h("div", { class: "title" }, h("span", { class: "dot" + (st.mounted ? " ok" : "") }), st.mounted ? (st.source || st.dir) : "Non monté"),
     h("div", { class: "sub" }, st.mounted ? `${size(st.free)} libres · ${st.fstype || "local"}` : "Choisissez où lire et écrire les images"),
     st.mounted && st.link && st.link.kind === "usb" ? h("div", { class: "side-link" }, linkBadge(st.link), h("span", {}, st.link.detail)) : null,
+    st.mounted && st.link && st.link.kind === "usb" ? h("div", { class: "side-hint" + (st.link.hotswap ? "" : " bad") },
+      st.link.hotswap ? "Changement de port possible (hors copie) : il sera remonté tout seul."
+        : "Ne débranchez pas : Clonix fonctionne depuis ce support (mémoire insuffisante pour le charger).") : null,
     st.mounted ? h("div", { class: "meter" }, h("div", { style: `width:${Math.max(used * 100, 2)}%` })) : null,
     h("button", { class: "btn" + (st.mounted ? "" : " primary"), onclick: () => storageDialog() }, st.mounted ? "Changer de dépôt" : "Configurer le dépôt"),
   ].filter(Boolean));

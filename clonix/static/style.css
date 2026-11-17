@@ -418,3 +418,5 @@ main { padding: 32px 40px 48px; max-width: 1480px; width: 100%; }
 .job-link-tip { flex-basis: 100%; font-size: 13px; }
 @media (max-width: 1380px) { .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 1180px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.side-hint { margin-top: 8px; font-size: 11.5px; line-height: 1.4; color: var(--faint); }
+.side-hint.bad { color: var(--warn); }

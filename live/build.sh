@@ -36,7 +36,7 @@ lb config \
     --chroot-squashfs-compression-type zstd \
     --iso-application Clonix \
     --iso-volume CLONIX \
-    --bootappend-live "boot=live components quiet loglevel=3 modprobe.blacklist=pcspkr locales=fr_FR.UTF-8 keyboard-layouts=fr timezone=Europe/Paris live-config.noautologin noeject"
+    --bootappend-live "boot=live components toram quiet loglevel=3 modprobe.blacklist=pcspkr locales=fr_FR.UTF-8 keyboard-layouts=fr timezone=Europe/Paris live-config.noautologin noeject"
 
 cp -a /src/live/config/. config/
 # Les droits d'exécution peuvent manquer si le dépôt vient de Windows.

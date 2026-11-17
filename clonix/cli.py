@@ -170,7 +170,7 @@ def cmd_web(runner, args):
         from clonix.demo import DemoApp
         app = DemoApp()
     else:
-        app = web.App(args.dir, dry_run=args.dry_run)
+        app = web.App(args.dir, dry_run=args.dry_run, hotplug=True)
     host = args.host or ("0.0.0.0" if args.remote else "127.0.0.1")
     web.serve(app, host, args.port)
     return 0

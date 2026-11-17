@@ -92,7 +92,7 @@ class _JobReporter:
 
 
 class App:
-    def __init__(self, image_dir=im.DEFAULT_DIR, runner_factory=None, code=None, dry_run=False):
+    def __init__(self, image_dir=im.DEFAULT_DIR, runner_factory=None, code=None, dry_run=False, hotplug=False):
         self.image_dir = image_dir
         self.remote_port = None  # défini par serve() si l'accès réseau est ouvert
         self.dry_run = dry_run
@@ -105,6 +105,61 @@ class App:
         # s'il existe, pour que le dépôt soit prêt sans action de l'utilisateur.
         if not dry_run:
             storage.auto_mount_data(self.inspect, self.image_dir)
+        self.storage_event = None  # {"id", "msg", "bad"} : dernier branchement/débranchement
+        self._event_id = 0
+        self._store_disk = None
+        self._known = block_devices()
+        self._retry = 0
+        if hotplug and not dry_run:
+            threading.Thread(target=self._hotplug_loop, daemon=True).start()
+
+    # ----------------------------------------------------- branchements USB
+    def _hotplug_loop(self):
+        while True:
+            time.sleep(HOTPLUG_PERIOD)
+            try:
+                self.hotplug_tick()
+            except Exception:  # surveillance : ne jamais arrêter le serveur
+                pass
+
+    def _event(self, msg, bad=False):
+        self._event_id += 1
+        self.storage_event = {"id": self._event_id, "msg": msg, "bad": bad}
+        self.inspect.log(msg)
+
+    def hotplug_tick(self, present=None):
+        """Détache le support des images s'il est débranché, le remonte s'il revient.
+
+        Appelée toutes les 2 s. Rien n'est fait pendant une opération : une
+        capture ou un déploiement en cours gère lui-même l'erreur.
+        """
+        present = set(block_devices() if present is None else present)
+        if present - self._known:
+            self._retry = HOTPLUG_RETRIES  # le temps que le système lise les partitions
+        self._known = present
+        if self.job and self.job.state == "running":
+            return None
+        r = self.inspect
+        mounted = os.path.ismount(self.image_dir)
+        if mounted and self._store_disk is None:
+            self._store_disk = dk.disk_of_mount(r, self.image_dir)
+        if mounted and self._store_disk and os.path.basename(self._store_disk) not in present:
+            storage.release_dead_store(r, self.image_dir)
+            self._store_disk = None
+            self._event("Support des images débranché. Rebranchez-le sur un autre port : "
+                        "Clonix le remontera tout seul.", bad=True)
+            return "unplugged"
+        if not mounted and self._retry > 0:
+            self._retry -= 1
+            if storage.auto_mount_data(r, self.image_dir):
+                self._retry = 0
+                self._store_disk = dk.disk_of_mount(r, self.image_dir)
+                link = dk.store_link(r, self.image_dir, dk.fstype_of_mount(r, self.image_dir))
+                self._event(f"Support des images rebranché et monté ({link['label']}"
+                            f"{', ' + link['detail'] if link['kind'] == 'usb' else ''}).",
+                            bad=bool(link.get("slow")))
+                return "mounted"
+        return None
 
     # ----------------------------------------------------------------- état
     def state(self):
@@ -112,11 +167,13 @@ class App:
         protected = dk.protected_disks(r, self.image_dir)
         disks = []
         for d in dk.list_disks(r):
+            reason = protected.get(d.path) or ("la clé de démarrage" if dk.is_boot_key(d) else None)
             disks.append({
                 "path": d.path, "name": d.name, "size": d.size, "model": d.model, "serial": d.serial,
                 "transport": d.transport, "removable": d.removable, "readonly": d.readonly,
-                "mounted": bool(d.mountpoints), "protected": protected.get(d.path),
-                "writable": not (d.readonly or d.mountpoints or d.path in protected),
+                "mounted": bool(d.mountpoints),
+                "protected": reason,
+                "writable": not (d.readonly or d.mountpoints or reason),
                 "partitions": [{"path": p.path, "number": p.number, "size": p.size, "fstype": p.fstype,
                                 "label": p.label} for p in d.partitions],
             })
@@ -130,6 +187,9 @@ class App:
                   for n, m, s in im.list_images(self.image_dir)]
         mounted = os.path.ismount(self.image_dir)
         fstype = dk.fstype_of_mount(r, self.image_dir) if mounted else ""
+        link = dk.store_link(r, self.image_dir, fstype) if mounted else None
+        if link and link["kind"] == "usb":
+            link["hotswap"] = _hotswap(r, self.image_dir)
         return {
             "version": __version__,
             "dry_run": self.dry_run,
@@ -140,7 +200,7 @@ class App:
                 "free": _free_space(self.image_dir),
                 "clonix_key": bool(storage.find_data_partition(r)),
                 "usb_speed": _store_usb_speed(r, self.image_dir) if mounted else None,
-                "link": dk.store_link(r, self.image_dir, fstype) if mounted else None,
+                "link": link,
             },
             "disks": disks,
             "images": images,
@@ -148,6 +208,7 @@ class App:
             "remote": ({"port": self.remote_port, "code": self.code, "addresses": _addresses(r)}
                        if self.remote_port else None),
             "job": self.job.as_dict() if self.job else None,
+            "storage_event": self.storage_event,
         }
 
     # ---------------------------------------------------------------- tâches
@@ -350,6 +411,33 @@ def _mount_source(runner, path):
 def _addresses(runner):
     out = runner.run(["ip", "-4", "-o", "addr", "show", "scope", "global"], readonly=True, check=False)
     return [line.split()[3].split("/")[0] for line in out.splitlines() if len(line.split()) > 3]
+
+
+HOTPLUG_PERIOD = 2.0
+HOTPLUG_RETRIES = 5
+_VIRTUAL_BLOCK = ("loop", "ram", "zram", "dm-", "sr", "md", "nbd")
+
+
+def block_devices(sysfs="/sys/block"):
+    """Noms des disques physiques présents (sda, nvme0n1…)."""
+    try:
+        return {n for n in os.listdir(sysfs) if not n.startswith(_VIRTUAL_BLOCK)}
+    except OSError:
+        return set()
+
+
+def _hotswap(runner, path):
+    """Peut-on débrancher le support des images sans arrêter Clonix ?
+
+    Oui si Clonix est chargé en mémoire (option toram : /run/live/medium est
+    alors en tmpfs) ou si le support n'est pas celui d'où Clonix a démarré.
+    """
+    if not os.path.isdir(dk.LIVE_MEDIUM):
+        return True
+    if dk.fstype_of_mount(runner, dk.LIVE_MEDIUM) == "tmpfs":
+        return True
+    live = dk.disk_of_mount(runner, dk.LIVE_MEDIUM)
+    return not live or live != dk.disk_of_mount(runner, path)
 
 
 def _store_usb_speed(runner, path):

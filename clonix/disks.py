@@ -165,6 +165,23 @@ def fstype_of_mount(runner, target):
     return out.strip().splitlines()[0] if out.strip() else ""
 
 
+BOOT_KEY_LABELS = {"VTOYEFI"}  # petite partition EFI de toute clé Ventoy
+
+
+def is_boot_key(disk):
+    """Clé ou SSD de démarrage (Ventoy, ou image Clonix copiée telle quelle).
+
+    Clonix est chargé en mémoire au démarrage et n'utilise plus sa clé : on la
+    reconnaît donc à son contenu plutôt qu'à son point de montage.
+    """
+    for p in disk.partitions:
+        if p.label in BOOT_KEY_LABELS:
+            return True
+        if p.fstype == "iso9660" and (p.label or "").upper().startswith("CLONIX"):
+            return True
+    return False
+
+
 def protected_disks(runner, image_dir=None):
     """Disques sur lesquels Clonix ne doit jamais écrire."""
     protected = {}
@@ -182,6 +199,8 @@ def check_writable_target(runner, disk, image_dir=None):
     if disk.readonly:
         raise ClonixError(f"{disk.path} est en lecture seule")
     reason = protected_disks(runner, image_dir).get(disk.path)
+    if not reason and is_boot_key(disk):
+        reason = "la clé de démarrage (Clonix ou Ventoy)"
     if reason:
         raise ClonixError(f"Refus : {disk.path} héberge {reason}")
     if disk.mountpoints:

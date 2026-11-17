@@ -149,6 +149,7 @@ def mount_data_partition(runner, mountpoint=im.DEFAULT_DIR):
         )
     _prepare(runner, mountpoint)
     ventoy_locked = False
+    other_error = None
     for cand in candidates:
         try:
             runner.run(_mount_cmd(runner, cand.path, mountpoint, cand.fstype))
@@ -156,11 +157,47 @@ def mount_data_partition(runner, mountpoint=im.DEFAULT_DIR):
             return cand.path
         except CommandError as exc:
             if not _is_busy(exc):
-                raise
+                other_error = other_error or exc  # ex. copie /dev/mapper d'un support débranché
+                continue
             ventoy_locked = ventoy_locked or cand.label == VENTOY_LABEL
     if ventoy_locked:
         raise ClonixError(VENTOY_HELP)
+    if other_error:
+        raise other_error
     raise ClonixError("L'espace de stockage de la clé est déjà utilisé et ne peut pas être monté.")
+
+
+def orphan_mappers(sysfs="/sys/block"):
+    """Périphériques device-mapper dont le disque a été débranché (noms dmsetup)."""
+    names = []
+    try:
+        entries = sorted(os.listdir(sysfs))
+    except OSError:
+        return names
+    for entry in entries:
+        if not entry.startswith("dm-"):
+            continue
+        base = os.path.join(sysfs, entry)
+        try:
+            if os.listdir(os.path.join(base, "slaves")):
+                continue
+            with open(os.path.join(base, "dm", "name")) as f:
+                names.append(f.read().strip())
+        except OSError:
+            continue
+    return names
+
+
+def release_dead_store(runner, mountpoint=im.DEFAULT_DIR, sysfs="/sys/block"):
+    """Le support des images a été débranché : on le détache proprement.
+
+    Démontage « paresseux » (le support n'est plus là pour un démontage normal),
+    puis suppression des copies /dev/mapper (Ventoy) devenues orphelines, pour
+    que le support se remonte normalement quand il est rebranché.
+    """
+    runner.run(["umount", "-l", mountpoint], check=False)
+    for name in orphan_mappers(sysfs):
+        runner.run(["dmsetup", "remove", "--force", name], check=False)
 
 
 def auto_mount_data(runner, mountpoint=im.DEFAULT_DIR):
