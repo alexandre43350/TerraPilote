@@ -4,8 +4,11 @@
 # 1. Pas de son au menu de démarrage : les menus Debian jouent une petite
 #    mélodie (accessibilité) avec la commande GRUB « play », et certains menus
 #    syslinux contiennent le caractère « cloche » (^G).
-# 2. Démarrage direct : le menu de la clé lance tout de suite sa première entrée
-#    (le système Clonix), sans attendre d'appui sur Entrée.
+# 2. Menu court à deux choix, lancé tout seul au bout de 3 secondes :
+#    - « Clonix » (par défaut) : chargé en mémoire (option toram), le support
+#      peut ensuite être débranché et changé de port sans redémarrer ;
+#    - « Clonix rapide » : sans chargement en mémoire, démarrage un peu plus
+#      court, mais ne pas débrancher le support tant que Clonix tourne.
 set -e
 
 # --- 1. silence, dans tous les fichiers de menus
@@ -17,25 +20,86 @@ find . -type f -name '*.cfg' | while IFS= read -r f; do
         "$f"
 done
 
+TIMEOUT=3
+MAIN_TITLE="Clonix"
+FAST_TITLE="Clonix rapide (sans chargement en memoire)"
+
+# Recopie, juste après elle, la première entrée qui contient « toram », sans
+# cette option et avec le titre FAST ; renomme l'originale en MAIN.
+# $1 = fichier, $2 = « grub » ou « syslinux ».
+add_fast_entry() {
+    awk -v kind="$2" -v main="$MAIN_TITLE" -v fast="$FAST_TITLE" -v q="'" '
+    function strip(l) { gsub(/[ \t]toram(=[^ \t]*)?/, "", l); return l }
+    function flush(   i, has, l) {
+        if (!n) return
+        has = 0
+        for (i = 1; i <= n; i++) if (buf[i] ~ /[ \t]toram/) has = 1
+        if (has && !done) {
+            for (i = 1; i <= n; i++) print retitle(buf[i], main, 0)
+            for (i = 1; i <= n; i++) {
+                l = retitle(strip(buf[i]), fast, 1)
+                if (kind == "syslinux" && l ~ /^[ \t]*menu[ \t]+default/) continue
+                print l
+            }
+            done = 1
+        } else {
+            for (i = 1; i <= n; i++) print buf[i]
+        }
+        n = 0
+    }
+    function retitle(l, title, isfast,   re) {
+        if (kind == "grub") {
+            re = "menuentry[ \t]+(\"[^\"]*\"|" q "[^" q "]*" q ")"
+            if (match(l, re)) {
+                l = substr(l, 1, RSTART - 1) "menuentry \"" title "\"" substr(l, RSTART + RLENGTH)
+                if (isfast) gsub(/[ \t]--hotkey=[^ \t]*/, "", l)  # raccourci deja pris par la premiere entree
+            }
+        } else {
+            if (l ~ /^[ \t]*menu[ \t]+label[ \t]/) { sub(/label[ \t].*/, "label " title, l) }
+            else if (isfast && l ~ /^[ \t]*label[ \t]/) { sub(/[ \t]*$/, "-rapide", l) }
+        }
+        return l
+    }
+    kind == "grub" {
+        if (!inb && $0 ~ /^[ \t]*menuentry[ \t]/) { inb = 1; n = 0 }
+        if (inb) { buf[++n] = $0; if ($0 ~ /^[ \t]*}[ \t]*$/) { inb = 0; flush() }; next }
+        print; next
+    }
+    kind == "syslinux" {
+        if ($0 ~ /^[ \t]*label[ \t]/) { flush(); inb = 1 }
+        if (inb) { buf[++n] = $0; next }
+        print; next
+    }
+    END { flush() }
+    ' "$1" > "$1.clonix" && mv "$1.clonix" "$1"
+}
+
 # --- 2a. GRUB (démarrage UEFI, et Ventoy)
 if [ -d boot/grub ]; then
+    # liste figée d'abord : find relirait les fichiers remplacés pendant la boucle
+    for f in $(find boot/grub -type f -name '*.cfg'); do
+        if grep -qs toram "$f" && ! grep -qsF "$FAST_TITLE" "$f"; then add_fast_entry "$f" grub; fi
+    done
     if grep -rqs '^[[:space:]]*set[[:space:]][[:space:]]*timeout=' boot/grub --include='*.cfg'; then
         find boot/grub -type f -name '*.cfg' -exec \
-            sed -i 's/^\([[:space:]]*set[[:space:]][[:space:]]*timeout=\).*/\10/' {} +
+            sed -i "s/^\([[:space:]]*set[[:space:]][[:space:]]*timeout=\).*/\1$TIMEOUT/" {} +
     elif [ -f boot/grub/grub.cfg ]; then
-        sed -i '1i set default=0\nset timeout=0' boot/grub/grub.cfg
+        sed -i "1i set default=0\nset timeout=$TIMEOUT" boot/grub/grub.cfg
     fi
+    find boot/grub -type f -name '*.cfg' -exec sed -i '/^[[:space:]]*set[[:space:]][[:space:]]*timeout_style=/d' {} +
 fi
 
-# --- 2b. syslinux / isolinux (démarrage BIOS) : timeout en dixièmes de seconde,
-#         0 voulant dire « attendre indéfiniment ».
+# --- 2b. syslinux / isolinux (démarrage BIOS) : timeout en dixièmes de seconde.
 for dir in isolinux syslinux; do
     [ -d "$dir" ] || continue
+    for f in $(find "$dir" -type f -name '*.cfg'); do
+        if grep -qs toram "$f" && ! grep -qsF "$FAST_TITLE" "$f"; then add_fast_entry "$f" syslinux; fi
+    done
     find "$dir" -type f -name '*.cfg' -exec \
-        sed -i -e 's/^\([[:space:]]*timeout[[:space:]][[:space:]]*\).*/\11/' \
+        sed -i -e "s/^\([[:space:]]*timeout[[:space:]][[:space:]]*\).*/\1$((TIMEOUT * 10))/" \
                -e 's/^\([[:space:]]*prompt[[:space:]][[:space:]]*\).*/\10/' {} +
     main="$dir/$dir.cfg"
     if [ -f "$main" ] && ! grep -qs '^[[:space:]]*timeout[[:space:]]' "$main"; then
-        printf 'prompt 0\ntimeout 1\n' >> "$main"
+        printf 'prompt 0\ntimeout %s\n' "$((TIMEOUT * 10))" >> "$main"
     fi
 done

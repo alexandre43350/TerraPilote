@@ -140,6 +140,8 @@ class DemoApp(App):
         s["storage"].update(mounted=True, fstype="exfat", source="/dev/mapper/ventoy", free=759e9,
                             usb_speed=5000, link={"kind": "usb", "label": "USB 3", "detail": "5 Gbit/s",
                                                   "speed": 5000, "slow": False, "hotswap": True})
+        s["boot"] = {"screen": 21.4, "in_ram": True, "ram_bytes": 912e6, "toram": 2.6,
+                     "kernel": 6.1, "userspace": 9.8, "firmware": None, "loader": None, "initrd": None}
         s["demo"] = True
         return s
 

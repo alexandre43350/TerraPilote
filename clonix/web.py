@@ -18,6 +18,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from clonix import __version__
+from clonix import bootinfo
 from clonix import disks as dk
 from clonix import image as im
 from clonix import multicast as mc
@@ -106,12 +107,25 @@ class App:
         if not dry_run:
             storage.auto_mount_data(self.inspect, self.image_dir)
         self.storage_event = None  # {"id", "msg", "bad"} : dernier branchement/débranchement
+        self._screen_ready = None  # secondes depuis Linux à la 1re demande de l'écran
+        self._boot = None
+        self._boot_checked = 0.0
         self._event_id = 0
         self._store_disk = None
         self._known = block_devices()
         self._retry = 0
         if hotplug and not dry_run:
             threading.Thread(target=self._hotplug_loop, daemon=True).start()
+
+    def boot_info(self):
+        """Durée du démarrage (mesurée une fois que le démarrage est terminé)."""
+        if self._screen_ready is None:
+            self._screen_ready = bootinfo.uptime()
+        now = time.monotonic()
+        if (self._boot is None or self._boot.get("kernel") is None) and now - self._boot_checked > 10:
+            self._boot_checked = now
+            self._boot = bootinfo.gather(self.inspect, self._screen_ready)
+        return self._boot
 
     # ----------------------------------------------------- branchements USB
     def _hotplug_loop(self):
@@ -209,6 +223,7 @@ class App:
                        if self.remote_port else None),
             "job": self.job.as_dict() if self.job else None,
             "storage_event": self.storage_event,
+            "boot": self.boot_info(),
         }
 
     # ---------------------------------------------------------------- tâches

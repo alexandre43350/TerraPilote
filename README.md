@@ -64,6 +64,12 @@ rebrancher sur un autre port, **hors capture ou déploiement en cours** :
 - au rebranchement, il le remonte tout seul ; l'afficheur USB 2 / USB 3 se met à
   jour et un message le confirme.
 
+Au démarrage, le menu de la clé propose deux choix pendant 3 secondes :
+**« Clonix »** (par défaut, chargé en mémoire) ou **« Clonix rapide (sans
+chargement en mémoire) »**, un peu plus court à démarrer mais sans changement de
+port possible. La durée du démarrage mesurée sur le PC (et la part du chargement
+en mémoire) s'affiche en bas à gauche de l'écran Clonix.
+
 Si le PC n'a pas assez de mémoire, Debian ignore `toram` et Clonix continue de
 fonctionner depuis le support : l'encadré du dépôt l'indique (« Ne débranchez
 pas »). La clé de démarrage (Ventoy ou image Clonix copiée) est reconnue à son

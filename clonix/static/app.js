@@ -165,6 +165,23 @@ function stat(label, value, sub, ic, cls) {
   return h("div", { class: "stat" + (cls ? " " + cls : "") }, icon(ic), h("small", {}, label), h("strong", {}, value), h("span", {}, sub));
 }
 
+/* Durée du démarrage, mesurée sur ce PC */
+function secs(v) { return v === null || v === undefined ? null : `${Math.round(v)} s`; }
+function renderBoot() {
+  const b = S.boot, el = $("#side-boot");
+  if (!el) return;
+  el.hidden = !(b && b.screen);
+  if (el.hidden) return;
+  const detail = [b.kernel != null ? `Linux ${secs(b.kernel)}` : null, b.userspace != null ? `services ${secs(b.userspace)}` : null,
+    b.firmware != null ? `PC ${secs(b.firmware)}` : null].filter(Boolean).join(" · ");
+  el.title = (detail ? detail + ". " : "") + "Le temps du PC et du menu Ventoy avant Linux n'est pas compté.";
+  el.replaceChildren(
+    h("span", {}, "Démarrage : ", h("strong", {}, secs(b.screen))),
+    b.in_ram === true ? h("span", {}, b.toram != null ? `dont ${secs(b.toram)} de chargement en mémoire${b.ram_bytes ? " (" + size(b.ram_bytes) + ")" : ""}`
+      : `chargé en mémoire${b.ram_bytes ? " (" + size(b.ram_bytes) + ")" : ""}`)
+      : b.in_ram === false ? h("span", {}, "démarrage rapide (sans chargement en mémoire)") : null);
+}
+
 /* Liaison du support des images : USB 2 (lent) en rouge, USB 3 en vert. */
 const LINK_ADVICE = "Lent : éteignez, rebranchez le support à fond sur un port USB 3 (bleu ou marqué SS), redémarrez.";
 function linkStat(st) {
@@ -214,6 +231,7 @@ function render() {
     st.mounted ? h("div", { class: "meter" }, h("div", { style: `width:${Math.max(used * 100, 2)}%` })) : null,
     h("button", { class: "btn" + (st.mounted ? "" : " primary"), onclick: () => storageDialog() }, st.mounted ? "Changer de dépôt" : "Configurer le dépôt"),
   ].filter(Boolean));
+  renderBoot();
   $("#side-net").replaceChildren(icon("net"), S.interface ? `Interface ${S.interface}` : "Aucun réseau");
 
   $("#disk-count").textContent = `${S.disks.length} disque(s)`;
