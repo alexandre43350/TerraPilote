@@ -75,5 +75,67 @@ class StoreErrorTest(unittest.TestCase):
                 ops.deploy(r, im.DirSource(path), "/dev/sdc", self.dir)
 
 
+
+class SeqRunner(FakeRunner):
+    """dmesg renvoie un journal qui grossit à chaque appel."""
+
+    def __init__(self, logs):
+        super().__init__()
+        self.logs = list(logs)
+
+    def run(self, argv, **kw):
+        out = super().run(argv, **kw)
+        if argv[0] == "dmesg":
+            return self.logs.pop(0) if len(self.logs) > 1 else self.logs[0]
+        return out
+
+
+class UsbWatchTest(unittest.TestCase):
+    def test_warns_once_on_resets(self):
+        base = "[1] usb 2-1: new SuperSpeed USB device\n"
+        reset = "[9] usb 2-1: reset SuperSpeed USB device number 2 using xhci_hcd\n"
+        r = SeqRunner([base, base, base + reset, base + reset * 3])
+        warnings = []
+        r.warn = warnings.append
+        w = dk.UsbWatch(r)
+        self.assertEqual(w.check(), 0)
+        self.assertEqual(w.check(), 1)
+        self.assertEqual(w.check(), 3)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("coupée ou réinitialisée 1 fois", warnings[0])
+        self.assertIn("3 coupures", r.reporter.out.getvalue())
+
+    def test_watch_runs_during_capture(self):
+        reset = "[9] usb 2-1: USB disconnect, device number 2\n"
+        r = SeqRunner(["", reset])
+        warnings = []
+        r.warn = warnings.append
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        ops.capture(r, "/dev/sda", "essai", tmp)
+        self.assertTrue(any("coupée ou réinitialisée" in w for w in warnings))
+
+    def test_no_dmesg_is_harmless(self):
+        class NoDmesg(FakeRunner):
+            def run(self, argv, **kw):
+                if argv[0] == "dmesg":
+                    raise ClonixError("Outil introuvable : dmesg")
+                return super().run(argv, **kw)
+        self.assertEqual(dk.UsbWatch(NoDmesg()).check(), 0)
+
+    def test_runner_watch_interval(self):
+        from clonix.runner import Runner
+        import io
+        r = Runner(out=io.StringIO())
+        calls = []
+        r.add_watch(lambda: calls.append(1), every=0)
+        r.plan([("x", 1)])
+        r.start_step(0)
+        r.emit(0.5)
+        self.assertEqual(len(calls), 2)  # start_step émet aussi
+        r.add_watch(lambda: 1 / 0, every=0)
+        r.emit(0.6)  # une surveillance qui plante ne casse rien
+
+
 if __name__ == "__main__":
     unittest.main()

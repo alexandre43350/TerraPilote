@@ -194,6 +194,7 @@ def capture(runner, disk_path, name, image_dir=None, compression="zstd", level="
     step = 0
 
     runner.log(f"Capture de {disk.describe()} vers {dest}")
+    usb = _watch_usb(runner)
     dk.check_usb_link(runner, image_dir)
     dk.tune_disk_readahead(runner, disk)
     started = time.monotonic()
@@ -253,6 +254,8 @@ def capture(runner, disk_path, name, image_dir=None, compression="zstd", level="
         if not runner.dry_run and os.path.isdir(tmp):
             shutil.rmtree(tmp, ignore_errors=True)
         raise
+    usb.check()
+    runner.clear_watches()
     runner.log(f"Image prête : {dest}")
     _summary(runner, "Capture", started, sum(f.get("size", 0) for f in manifest["files"].values()), "écrits")
     return dest, manifest
@@ -277,6 +280,15 @@ def _capture_wim(runner, device, folder, manifest, rec, comp, required_bytes, di
     manifest["table"]["min_bytes"] = required_bytes - rec["size"] + rec["min_size"] + 4 * pt.ALIGN_BYTES
     runner.log(f"  partition {rec['number']} : au moins {dk.human_size(rec['min_size'])} "
                "nécessaires au déploiement")
+
+
+def _watch_usb(runner):
+    """Surveillance des coupures USB pendant l'opération (avertissement visible)."""
+    runner.clear_watches()
+    usb = dk.UsbWatch(runner)
+    if not runner.dry_run:
+        runner.add_watch(usb.check)
+    return usb
 
 
 def _summary(runner, what, started, nbytes, verb, visible=True):
@@ -420,6 +432,7 @@ def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=N
         confirm(manifest, disk)
 
     runner.log(f"Déploiement de « {manifest['name']} » sur {disk.describe()}")
+    usb = _watch_usb(runner)
     dk.check_usb_link(runner, image_dir)
     dk.tune_readahead(runner, image_dir)
     started = time.monotonic()
@@ -482,6 +495,8 @@ def deploy(runner, source, disk_path, image_dir=None, new_uuids=False, confirm=N
         except ClonixError as exc:
             runner.warn(f"Adaptation de Windows impossible : {exc}. Windows risque de ne pas "
                         "démarrer (écran bleu INACCESSIBLE_BOOT_DEVICE).")
+    usb.check()
+    runner.clear_watches()
     runner.log(f"Déploiement terminé sur {disk.path}")
     _summary(runner, "Déploiement", started, im.image_bytes(manifest), "lus")
     return manifest

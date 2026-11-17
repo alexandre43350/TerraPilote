@@ -94,6 +94,7 @@ def run(runner, disk_path, image_dir):
     store_disk = dk.disk_of_mount(runner, image_dir)
     usb = dk.usb_speed(store_disk) if store_disk else None
     dk.tune_readahead(runner, image_dir)
+    watch = dk.UsbWatch(runner)
 
     steps = ["Lecture du disque du PC", "Écriture sur le support des images",
              "Lecture du support des images", "Processeur : compression", "Processeur : contrôle"]
@@ -148,6 +149,7 @@ def run(runner, disk_path, image_dir):
                 pass
 
     _report(runner, disk, store_disk, usb, results)
+    watch.check()  # avertit si la liaison USB a décroché pendant le test
     return results
 
 

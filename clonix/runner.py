@@ -281,6 +281,7 @@ class Runner:
         self.last_wim_total = None  # volume de fichiers copié par la dernière commande wimlib
         self._flow = None
         self._flow_cache = (0.0, None)
+        self._watches = []  # [fonction, intervalle, dernier appel]
         self.slowest = None  # mesure de la copie la plus longue de l'opération
 
     # ----------------------------------------------------------- rapports
@@ -326,6 +327,7 @@ class Runner:
         if eta is None and 0.001 < fraction < 1 and elapsed > 1:
             eta = elapsed * (1 - fraction) / fraction
         flow = self._flow_snapshot()
+        self._run_watches()
         self.reporter.progress({
             "store_rate": flow and flow["store_rate"],
             "limit": flow and flow["limit"],
@@ -338,6 +340,23 @@ class Runner:
             "rate": rate,
             "eta": eta,
         })
+
+    def add_watch(self, fn, every=15.0):
+        """Appelle ``fn`` régulièrement pendant les copies (au plus toutes les ``every`` s)."""
+        self._watches.append([fn, every, time.monotonic()])
+
+    def clear_watches(self):
+        self._watches = []
+
+    def _run_watches(self):
+        now = time.monotonic()
+        for w in self._watches:
+            if now - w[2] >= w[1]:
+                w[2] = now
+                try:
+                    w[0]()
+                except Exception:  # surveillance seulement : ne jamais casser la copie
+                    pass
 
     def _flow_snapshot(self):
         """Mesure en cours (recalculée au plus une fois par seconde)."""

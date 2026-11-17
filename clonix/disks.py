@@ -264,6 +264,50 @@ def kernel_storage_messages(runner, limit=8):
     return lines[-limit:]
 
 
+_USB_TROUBLE = re.compile(r"usb \S+: reset|USB disconnect|uas_eh_abort|uas_eh_device_reset|"
+                          r"I/O error, dev|Buffer I/O error", re.I)
+
+USB_TROUBLE_HELP = (
+    "La liaison USB avec le support des images a été coupée ou réinitialisée {n} fois depuis le début : "
+    "à chaque fois la copie s'arrête plusieurs secondes, c'est ce qui la ralentit. Cause habituelle : "
+    "le port USB du PC fournit trop peu de courant pour un SSD NVMe en boîtier, ou le câble est fatigué. "
+    "Essayez un autre port (de préférence directement sur le PC, à l'arrière sur un PC fixe), un câble "
+    "court en bon état, ou un hub USB 3 alimenté par une prise.")
+
+
+class UsbWatch:
+    """Surveille, pendant une copie, les coupures et réinitialisations USB vues par le noyau."""
+
+    def __init__(self, runner):
+        self.runner = runner
+        self.base = self._count()
+        self.warned = 0
+
+    def _count(self):
+        try:
+            out = self.runner.run(["dmesg"], readonly=True, check=False) or ""
+        except Exception:
+            return None
+        return sum(1 for line in out.splitlines() if _USB_TROUBLE.search(line))
+
+    def check(self):
+        if self.base is None:
+            return 0
+        n = self._count()
+        if n is None:
+            return 0
+        if n < self.base:  # journal du noyau tourné : on repart de là
+            self.base = n
+            return 0
+        new = n - self.base
+        if new and not self.warned:
+            self.runner.warn(USB_TROUBLE_HELP.format(n=new))
+        elif new > self.warned:
+            self.runner.log(f"  {new} coupures/réinitialisations USB depuis le début")
+        self.warned = max(self.warned, new)
+        return new
+
+
 def store_io_error(runner, exc, writing=True):
     """Transforme une erreur système sur le support des images en message clair.
 

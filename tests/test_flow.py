@@ -103,7 +103,7 @@ class PipelineExitTest(unittest.TestCase):
     def test_reader_stopping_early_is_not_an_error(self):
         from clonix.errors import CommandError
         r = Runner(out=io.StringIO())
-        r.pipeline([["sh", "-c", "yes"], ["head", "-c", "10"]])
+        r.pipeline([["sh", "-c", "yes"], ["head", "-c", "10"]], sink=io.BytesIO())
         with self.assertRaises(CommandError) as ctx:
             r.pipeline([["sh", "-c", "yes"], ["sh", "-c", "head -c 10 >/dev/null; exit 3"]])
         self.assertEqual(ctx.exception.returncode, 3)
